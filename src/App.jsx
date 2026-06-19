@@ -20,7 +20,11 @@ function App() {
   const [citizenName, setCitizenName] = useState('Chirag Panwar'); 
 
   const [theme, setTheme] = useState('light');
+
+  // 🔥 NEW: Password Change States
+  const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
 
   const [selectedCategory, setSelectedCategory] = useState('Broken Gym Equipment');
   const [subCategory, setSubCategory] = useState(''); 
@@ -40,7 +44,6 @@ function App() {
 
   const [parkData, setParkData] = useState(null);
   
-  // LIVE DATABASE STATE
   const [dashboardData, setDashboardData] = useState(null);
 
   const mapRef = useRef(null);
@@ -68,6 +71,8 @@ function App() {
   };
 
   const strength = checkPasswordStrength(regPassword);
+  // Re-use strength checker for the new password field in the profile tab
+  const newPassStrength = checkPasswordStrength(newPassword);
 
   useEffect(() => {
     fetch('/gurugram_parks.geojson')
@@ -78,10 +83,9 @@ function App() {
       .catch(err => console.error("Failed to load GeoJSON:", err));
   }, []);
 
-  // SYNCHRONIZE DASHBOARD DATA WITH FLASK API
   const fetchLiveDashboardData = async () => {
     try {
-      const response = await fetch('http://10.10.3.132:8000/api/complaints');
+      const response = await fetch('http://10.10.3.132:8000/api/complaints', { cache: 'no-store' });
       if (response.ok) {
         const data = await response.json();
         setDashboardData({ kpis: data.kpis, complaints: data.complaints });
@@ -91,7 +95,6 @@ function App() {
     }
   };
 
-  // Trigger dashboard sync when logging in or viewing the overview tab
   useEffect(() => {
     if (isLoggedIn && activeTab === 'overview') {
       fetchLiveDashboardData();
@@ -340,6 +343,9 @@ function App() {
 
       if (response.ok) {
         setCitizenName(regName);
+        // 🔥 BUGFIX: Save the registration mobile number into the active session state
+        setMobileInput(regMobile);
+        
         setIsLoggedIn(true);
         setActiveTab('overview');
 
@@ -355,7 +361,6 @@ function App() {
     }
   };
 
-  // POST Complaint Data to Database
   const handleComplaintSubmit = async (e) => {
     e.preventDefault();
     
@@ -383,11 +388,57 @@ function App() {
         setRemarks('');
         if (searchMarkerRef.current) searchMarkerRef.current.remove();
         
-        // Immediately fetch the updated dashboard data and switch tabs
         fetchLiveDashboardData();
         setActiveTab('overview'); 
       } else {
         window.alert(`Error Logging Complaint: ${data.message}`);
+      }
+    } catch (error) {
+      console.error("Backend Error:", error);
+      window.alert("Critical Failure: Could not connect to the GMDA servers.");
+    }
+  };
+
+  // 🔥 NEW: Password Change Submission Handler
+  const handlePasswordChange = async (e) => {
+    e.preventDefault();
+
+    if (newPassword !== confirmPassword) {
+      window.alert("Security Policy: New passwords do not match.");
+      return;
+    }
+
+    if (newPassword.length < 8) {
+      window.alert("Security Policy: New password must be at least 8 characters long.");
+      return;
+    }
+
+    if (/\d{4}/.test(newPassword)) {
+      window.alert("Security Policy: New password cannot contain more than 3 consecutive numbers.");
+      return;
+    }
+
+    try {
+      const response = await fetch('http://10.10.3.132:8000/api/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mobile: mobileInput,
+          oldPassword: oldPassword,
+          newPassword: newPassword
+        })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        window.alert("Success: Security credentials updated successfully.");
+        // Clean out the form inputs
+        setOldPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
+      } else {
+        window.alert(`Verification Error: ${data.message}`);
       }
     } catch (error) {
       console.error("Backend Error:", error);
@@ -521,7 +572,6 @@ function App() {
             </div>
           </div>
 
-          {/* Pass the live data state and the GeoJSON map data to the Overview component */}
           {activeTab === 'overview' && <DashboardOverview data={dashboardData} parkData={parkData} />}
           
           {activeTab === 'Complaint' && (
@@ -777,11 +827,13 @@ function App() {
           {activeTab === 'Before And After Status' && <div className="view-placeholder"><h3>Before And After Status Coming Soon....</h3></div>}
           
           {activeTab === 'profile' && (
-            <div className="profile-details-page">
+            <div className="profile-details-page" style={{ flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
+              
+              {/* Main Profile Info Card */}
               <div className="profile-card-large">
                 <div className="profile-card-header">
                   <div className="large-avatar">
-                    {(citizenName || "User").split(" ").map(n => n[0]).join("").toUpperCase()}
+                    {(citizenName || "User").split(" ").map(n => n[0]).join("").toUpperCase().substring(0, 2)}
                   </div>
                   <div>
                     <h3 style={{ margin: 0, color: 'var(--text-main)' }}>{citizenName}</h3>
@@ -796,10 +848,80 @@ function App() {
                   </div>
                   <div className="profile-info-row">
                     <span className="info-label">Phone Number:</span>
-                    <span className="info-value" style={{ color: 'var(--text-main)' }}>{mobileInput || "8595616328"}</span>
+                    <span className="info-value" style={{ color: 'var(--text-main)' }}>{mobileInput}</span>
                   </div>
                 </div>
               </div>
+
+              {/* 🔥 NEW: Security Settings / Change Password Card */}
+              <div className="profile-card-large">
+                <div className="profile-card-header" style={{ paddingBottom: '16px', marginBottom: '16px', borderBottom: '1px solid var(--border-slate)' }}>
+                  <h3 style={{ margin: 0, color: 'var(--text-main)', fontSize: '15px', textTransform: 'uppercase' }}>Security Settings</h3>
+                </div>
+                
+                <form onSubmit={handlePasswordChange} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                  <div className="form-group">
+                    <label htmlFor="oldPassword">Current Password</label>
+                    <input 
+                      id="oldPassword" 
+                      type="password" 
+                      className="form-input" 
+                      value={oldPassword}
+                      onChange={(e) => setOldPassword(e.target.value)}
+                      placeholder="Enter current password"
+                      required 
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label htmlFor="newPassword">New Password</label>
+                    <input 
+                      id="newPassword" 
+                      type="password" 
+                      className="form-input" 
+                      value={newPassword}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (!/\d{4}/.test(val)) {
+                          setNewPassword(val);
+                        } else {
+                          window.alert("Security Policy: Passwords cannot contain more than 3 consecutive numbers.");
+                        }
+                      }} 
+                      placeholder="Create a new secure password"
+                      required 
+                    />
+                  </div>
+
+                  {newPassword && (
+                    <div style={{ padding: '0 4px', marginTop: '-8px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', fontWeight: 'bold', color: newPassStrength.color }}>
+                        <span style={{ color: 'var(--text-muted)' }}>Strength</span>
+                        <span>{newPassStrength.label}</span>
+                      </div>
+                      <div style={{ height: '3px', backgroundColor: 'var(--border-slate)', borderRadius: '2px', marginTop: '4px', overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: newPassStrength.width, backgroundColor: newPassStrength.color, transition: 'all 0.3s' }}></div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="form-group">
+                    <label htmlFor="confirmPassword">Confirm New Password</label>
+                    <input 
+                      id="confirmPassword" 
+                      type="password" 
+                      className="form-input" 
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="Re-type new password"
+                      required 
+                    />
+                  </div>
+
+                  <button type="submit" className="submit-complaint-btn" style={{ marginTop: '5px' }}>Update Password</button>
+                </form>
+              </div>
+
             </div>
           )}
         </main>
