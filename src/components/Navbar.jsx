@@ -2,7 +2,7 @@ import React from 'react';
 import gmdaLogo from '../assets/gmda-logo.png'; 
 
 // FIXED: Destructured 'theme' and 'toggleTheme' from incoming props
-function Navbar({ citizenName, theme, toggleTheme, onMenuToggle, onProfileClick }) {
+function Navbar({ citizenName, theme, toggleTheme, onMenuToggle, onProfileClick, onLogout }) {
   
   const getInitials = (name) => {
     if (!name) return "CP";
@@ -21,7 +21,7 @@ function Navbar({ citizenName, theme, toggleTheme, onMenuToggle, onProfileClick 
         </button>
         <img src={gmdaLogo} alt="GMDA Logo" className="logo-img" />
         <div>
-          <h1 className="navbar-title">Parks Infrastructure Ecosystem</h1>
+          <h1 className="navbar-title">Parks Grievance Ecosystem</h1>
           <p className="navbar-subtitle">Citizen Portal</p>
         </div>
       </div>
@@ -38,13 +38,22 @@ function Navbar({ citizenName, theme, toggleTheme, onMenuToggle, onProfileClick 
 
         <div className="citizen-profile-hub" onClick={onProfileClick} style={{ cursor: 'pointer' }}>
           <div className="profile-badge-avatar">
-            {getInitials(citizenName)}
-          </div>
-          <div className="profile-meta-details">
-            <span className="profile-display-name">{citizenName}</span>
-            <span className="profile-role-tag">Verified Citizen</span>
-          </div>
+          {(citizenName || "User").split(" ").map(n => n[0]).join("").toUpperCase().substring(0, 2)}
         </div>
+        
+        <div className="profile-meta-details">
+          <span className="profile-display-name">{citizenName}</span>
+          <span 
+            className="profile-role-tag" 
+            onClick={(e) => {
+              e.stopPropagation(); 
+              if(onLogout) onLogout();
+            }}
+          >
+            LOGOUT
+          </span>
+        </div>
+      </div>
       </div>
     </header>
   );

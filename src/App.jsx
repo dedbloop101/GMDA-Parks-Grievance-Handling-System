@@ -12,40 +12,37 @@ function App() {
   const [activeTab, setActiveTab] = useState('overview');
   const [isMobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // Core Authentication states
   const [mobileInput, setMobileInput] = useState('');
   const [password, setPassword] = useState('');
   const [regName, setRegName] = useState(''); 
+  const [regMobile, setRegMobile] = useState('');
+  const [regPassword, setRegPassword] = useState('');
   const [citizenName, setCitizenName] = useState('Chirag Panwar'); 
 
-  // Theme State
   const [theme, setTheme] = useState('light');
   const [newPassword, setNewPassword] = useState('');
 
-  // Form State Tracking
   const [selectedCategory, setSelectedCategory] = useState('Broken Gym Equipment');
   const [subCategory, setSubCategory] = useState(''); 
-  
-  // AUTO-PAN SEARCH STATES
+  const [remarks, setRemarks] = useState(''); 
   const [parkNameInput, setParkNameInput] = useState('');
   const [sectorIdInput, setSectorIdInput] = useState('');
 
-  // Layout & Drag State
   const [isFormFloating, setIsFormFloating] = useState(true);
   const [formPos, setFormPos] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const dragRef = useRef({ startX: 0, startY: 0 });
 
-  // Custom Measurement Tool State
   const [isMeasuring, setIsMeasuring] = useState(false);
   const [measurePoints, setMeasurePoints] = useState([]);
   const [measureDistance, setMeasureDistance] = useState(0);
   const [measureArea, setMeasureArea] = useState(0); 
 
-  // OFFICIAL GEOJSON STATE
   const [parkData, setParkData] = useState(null);
+  
+  // LIVE DATABASE STATE
+  const [dashboardData, setDashboardData] = useState(null);
 
-  // DOM & Logic Refs
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const isMeasuringRef = useRef(false);
@@ -53,20 +50,53 @@ function App() {
   const measureLineRef = useRef(null);
   const measurePolygonRef = useRef(null); 
   const searchMarkerRef = useRef(null);
-
+  
   const toggleTheme = () => setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
 
-  // FETCH THE GEOJSON ON LOAD
+  const checkPasswordStrength = (pass) => {
+    let score = 0;
+    if (!pass) return { label: '', color: 'transparent', width: '0%' };
+    if (pass.length > 7) score += 1;
+    if (/[A-Z]/.test(pass)) score += 1;
+    if (/[a-z]/.test(pass)) score += 1;
+    if (/[0-9]/.test(pass)) score += 1;
+    if (/[^A-Za-z0-9]/.test(pass)) score += 1;
+
+    if (score <= 2) return { label: 'Weak', color: '#dc2626', width: '33%' };
+    if (score === 3 || score === 4) return { label: 'Medium', color: '#f59e0b', width: '66%' };
+    if (score >= 5) return { label: 'Strong', color: '#10b981', width: '100%' };
+  };
+
+  const strength = checkPasswordStrength(regPassword);
+
   useEffect(() => {
-    // Fetches the raw file straight from the public folder asynchronously
     fetch('/gurugram_parks.geojson')
       .then(res => res.json())
       .then(data => {
-        console.log(`✅ Loaded ${data.features.length} parks from GeoJSON`);
         setParkData(data);
       })
       .catch(err => console.error("Failed to load GeoJSON:", err));
   }, []);
+
+  // SYNCHRONIZE DASHBOARD DATA WITH FLASK API
+  const fetchLiveDashboardData = async () => {
+    try {
+      const response = await fetch('http://10.10.3.132:8000/api/complaints');
+      if (response.ok) {
+        const data = await response.json();
+        setDashboardData({ kpis: data.kpis, complaints: data.complaints });
+      }
+    } catch (error) {
+      console.error("Failed to sync dashboard:", error);
+    }
+  };
+
+  // Trigger dashboard sync when logging in or viewing the overview tab
+  useEffect(() => {
+    if (isLoggedIn && activeTab === 'overview') {
+      fetchLiveDashboardData();
+    }
+  }, [isLoggedIn, activeTab]);
 
   useEffect(() => {
     isMeasuringRef.current = isMeasuring;
@@ -108,9 +138,8 @@ function App() {
     e.currentTarget.releasePointerCapture(e.pointerId);
   };
 
-  // GIS MAP INSTANCE CONTROLLER
   useEffect(() => {
-    if (activeTab === 'grievance' && isLoggedIn && window.L && mapRef.current) {
+    if (activeTab === 'Complaint' && isLoggedIn && window.L && mapRef.current) {
       if (mapInstanceRef.current) return;
 
       try {
@@ -192,9 +221,7 @@ function App() {
     }
   }, [activeTab, isLoggedIn]);
 
-  // AUTO-PANNING ENGINE (Live GeoJSON Data)
   useEffect(() => {
-    // Now it only aborts if BOTH inputs are completely empty
     if (!mapInstanceRef.current || !parkData || (!parkNameInput && !sectorIdInput)) return;
 
     const searchTerm = parkNameInput.toLowerCase();
@@ -205,12 +232,10 @@ function App() {
       const address = park.properties["addr:suburb"] ? park.properties["addr:suburb"].toLowerCase() : "";
       const fullString = `${name} ${address}`;
 
-      // If they only type a sector, just find the first park in that sector
       if (!searchTerm && sectorTerm) {
           return fullString.includes(sectorTerm);
       }
       
-      // If they type a name (and maybe a sector), match it strictly
       return name.includes(searchTerm) && 
              (sectorTerm === '' || fullString.includes(sectorTerm));
     });
@@ -240,7 +265,7 @@ function App() {
         .bindPopup(`<b>${parkNameDisplay}</b><br>Coordinates: ${lat.toFixed(4)}, ${lng.toFixed(4)}`)
         .openPopup();
     }
-  }, [parkNameInput, sectorIdInput, parkData]); // <-- Dependencies now include parkData
+  }, [parkNameInput, sectorIdInput, parkData]);
 
   useEffect(() => {
     if (mapInstanceRef.current) {
@@ -248,17 +273,126 @@ function App() {
     }
   }, [isFormFloating, isMobileMenuOpen]);
   
-  const handleLoginSubmit = (e) => {
+  const handleLoginSubmit = async (e) => {
     e.preventDefault();
     if (mobileInput.trim() === '' || password.trim() === '') return;
-    setIsLoggedIn(true);
+    
+    if (mobileInput.length < 10) {
+      alert("Please enter a valid 10-digit mobile number.");
+      return;
+    }
+
+    try {
+      const response = await fetch('http://10.10.3.132:8000/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mobile: mobileInput,
+          password: password
+        })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setCitizenName(data.user.fullName); 
+        setIsLoggedIn(true);
+        setActiveTab('overview');
+      } else {
+        alert(`Login Failed: ${data.message}`);
+      }
+    } catch (error) {
+      console.error("Backend Error:", error);
+      alert("Failed to connect to the server. Have you registered? If no then please register first!");
+    }
   };
 
-  const handleRegisterSubmit = (e) => {
+  const handleRegisterSubmit = async (e) => {
     e.preventDefault();
-    setCitizenName(regName); 
-    alert(`Account created successfully for ${regName}!`);
-    setAuthMode('login');
+    
+    if (regMobile.length !== 10) {
+      alert("Registration Failed: Mobile number must be exactly 10 digits.");
+      return;
+    }
+
+    if (regPassword.length < 8) {
+      alert("Registration Failed: Password must be at least 8 characters long.");
+      return;
+    }
+
+    if (/\d{4}/.test(regPassword)) {
+      alert("Registration Failed: Password cannot contain more than 3 consecutive numbers.");
+      return;
+    }
+
+    try {
+      const response = await fetch('http://10.10.3.132:8000/api/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fullName: regName,
+          mobile: regMobile, 
+          password: regPassword
+        })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setCitizenName(regName);
+        setIsLoggedIn(true);
+        setActiveTab('overview');
+
+        setRegName('');
+        setRegMobile('');
+        setRegPassword('');
+      } else {
+        alert(`Error: ${data.message}`);
+      }
+    } catch (error) {
+      console.error("Backend Error:", error);
+      alert("Failed to connect to the server. Is Flask running?");
+    }
+  };
+
+  // POST Complaint Data to Database
+  const handleComplaintSubmit = async (e) => {
+    e.preventDefault();
+    
+    try {
+      const response = await fetch('http://10.10.3.132:8000/api/complaints', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          citizenName: citizenName,
+          parkName: parkNameInput,
+          sectorId: sectorIdInput,
+          category: selectedCategory,
+          subCategory: subCategory,
+          remarks: remarks
+        })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setSelectedCategory('Broken Gym Equipment'); 
+        setSubCategory(''); 
+        setParkNameInput('');
+        setSectorIdInput('');
+        setRemarks('');
+        if (searchMarkerRef.current) searchMarkerRef.current.remove();
+        
+        // Immediately fetch the updated dashboard data and switch tabs
+        fetchLiveDashboardData();
+        setActiveTab('overview'); 
+      } else {
+        window.alert(`Error Logging Complaint: ${data.message}`);
+      }
+    } catch (error) {
+      console.error("Backend Error:", error);
+      window.alert("Critical Failure: Could not connect to the GMDA servers.");
+    }
   };
 
   if (!isLoggedIn) {
@@ -271,8 +405,8 @@ function App() {
               <h2 className="system-headline">Parks Grievance Handling System</h2>
             </div>
             <div className="quick-nav-links">
-              <button className="nav-anchor-btn" onClick={() => setAuthMode('register')}>➔ Citizen Registration / Account Setup</button>
-              <button className="nav-anchor-btn" onClick={() => alert('Please Sign In first to register a complaint!')}>➔ Register Your Grievance/Complaints</button>
+              <button className="nav-anchor-btn" onClick={() => setAuthMode('register')}>Citizen Registration / Account Setup</button>
+              <button className="nav-anchor-btn" onClick={() => alert('Please Sign In first to register a complaint!')}>Register Your Grievance/Complaints</button>
             </div>
           </div>
           <div className="right-auth-panel">
@@ -281,7 +415,17 @@ function App() {
                 <form onSubmit={handleLoginSubmit}>
                   <div className="stage-title">Citizen Secure Sign In</div>
                   <div className="input-wrapper">
-                    <input id="loginMobile" name="loginMobile" type="tel" className="input-field" placeholder="Mobile Number" value={mobileInput} onChange={(e) => setMobileInput(e.target.value)} required />
+                    <input 
+                      id="loginMobile" 
+                      name="loginMobile" 
+                      type="tel" 
+                      maxLength="10"
+                      className="input-field" 
+                      placeholder="10-Digit Mobile Number" 
+                      value={mobileInput} 
+                      onChange={(e) => setMobileInput(e.target.value.replace(/\D/g, ''))} 
+                      required 
+                    />
                   </div>
                   <div className="input-wrapper">
                     <input id="loginPassword" name="loginPassword" type="password" className="input-field" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required />
@@ -297,12 +441,51 @@ function App() {
                     <input id="regName" name="regName" type="text" className="input-field" placeholder="Full Name" value={regName} onChange={(e) => setRegName(e.target.value)} required />
                   </div>
                   <div className="input-wrapper">
-                    <input id="regMobile" name="regMobile" type="tel" className="input-field" placeholder="Mobile Number" value={regMobile} onChange={(e) => setRegMobile(e.target.value)} required />
+                    <input 
+                      id="regMobile" 
+                      name="regMobile" 
+                      type="tel" 
+                      maxLength="10"
+                      className="input-field" 
+                      placeholder="10-Digit Mobile Number" 
+                      value={regMobile} 
+                      onChange={(e) => setRegMobile(e.target.value.replace(/\D/g, ''))} 
+                      required 
+                    />
                   </div>
-                  <div className="input-wrapper">
-                    <input id="regPassword" name="regPassword" type="password" className="input-field" placeholder="Create Password" value={regPassword} onChange={(e) => setRegPassword(e.target.value)} required />
+                  <div className="input-wrapper" style={{ marginBottom: regPassword ? '8px' : '16px' }}>
+                    <input 
+                      id="regPassword" 
+                      name="regPassword" 
+                      type="password" 
+                      className="input-field" 
+                      placeholder="Create Password" 
+                      value={regPassword} 
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (!/\d{4}/.test(val)) {
+                          setRegPassword(val);
+                        } else {
+                          window.alert("Security Policy: Passwords cannot contain more than 3 consecutive numbers.");
+                        }
+                      }} 
+                      required 
+                    />
                   </div>
-                  <button type="submit" className="submit-portal-btn" style={{ backgroundColor: '#047857' }}>Create Account</button>
+                  
+                  {regPassword && (
+                    <div style={{ marginBottom: '16px', padding: '0 8px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', fontWeight: 'bold', color: strength.color }}>
+                        <span style={{ color: 'var(--text-muted)' }}>Password Strength</span>
+                        <span>{strength.label}</span>
+                      </div>
+                      <div style={{ height: '4px', backgroundColor: '#e2e8f0', borderRadius: '2px', marginTop: '4px', overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: strength.width, backgroundColor: strength.color, transition: 'all 0.3s' }}></div>
+                      </div>
+                    </div>
+                  )}
+
+                  <button type="submit" className="submit-portal-btn" style={{ backgroundColor: '#1e3a8a' }}>Create Account</button>
                 </form>
               </div>
             )}
@@ -320,6 +503,12 @@ function App() {
         toggleTheme={toggleTheme}
         onMenuToggle={() => setMobileMenuOpen(!isMobileMenuOpen)} 
         onProfileClick={() => { setActiveTab('profile'); setMobileMenuOpen(false); }}
+        onLogout={() => { 
+          setIsLoggedIn(false); 
+          setMobileInput(''); 
+          setPassword(''); 
+          setActiveTab('overview'); 
+        }}
       />
       <div className="workspace">
         <Sidebar activeTab={activeTab} onTabChange={(tab) => { setActiveTab(tab); setMobileMenuOpen(false); }} isMobileOpen={isMobileMenuOpen} onMobileClose={() => setMobileMenuOpen(false)} />
@@ -328,23 +517,22 @@ function App() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <h2 style={{ fontSize: '20px', textTransform: 'capitalize', color: 'var(--text-main)' }}>{activeTab} Panel</h2>
-                <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>GMDA Infrastructure Management Core</p>
               </div>
-              <button className="logout-trigger-btn" onClick={() => { setIsLoggedIn(false); setMobileInput(''); setPassword(''); }}>🚪 Secure Logout</button>
             </div>
           </div>
 
-          {activeTab === 'overview' && <DashboardOverview />}
+          {/* Pass the live data state and the GeoJSON map data to the Overview component */}
+          {activeTab === 'overview' && <DashboardOverview data={dashboardData} parkData={parkData} />}
           
-          {activeTab === 'grievance' && (
+          {activeTab === 'Complaint' && (
             <div className={`complaint-portal-layout ${!isFormFloating ? 'docked' : ''}`}>
               
              <div 
                 className={`complaint-form-container ${isFormFloating ? 'floating' : 'docked'}`}
                 style={{
                   position: isFormFloating ? 'fixed' : 'relative',
-                  top: isFormFloating ? '115px' : 'auto',  // Clears the navbar
-                  left: isFormFloating ? '310px' : 'auto', // Clears the sidebar
+                  top: isFormFloating ? '115px' : 'auto',  
+                  left: isFormFloating ? '220px' : 'auto', 
                   transform: isFormFloating ? `translate3d(${formPos.x}px, ${formPos.y}px, 0)` : 'none',
                   transition: (isDragging && isFormFloating) ? 'none' : undefined,
                   zIndex: 9999 
@@ -367,24 +555,7 @@ function App() {
                   </h3>
                   
                   <div style={{ display: 'flex', gap: '6px' }}>
-                    <button 
-                      type="button" 
-                      className="layout-toggle-btn" 
-                      onPointerDown={(e) => e.stopPropagation()} 
-                      onClick={(e) => {
-                        e.preventDefault();
-                        setIsMeasuring(!isMeasuring);
-                        if (isMeasuring) resetMeasurement();
-                      }}
-                      style={{
-                        backgroundColor: isMeasuring ? '#fee2e2' : 'var(--color-input)',
-                        color: isMeasuring ? '#dc2626' : 'var(--text-main)',
-                        borderColor: isMeasuring ? '#f8b4b4' : 'var(--border-slate)'
-                      }}
-                    >
-                      {isMeasuring ? '🛑 Stop' : '📐 Measure'}
-                    </button>
-
+                  
                     <button 
                       type="button" 
                       className="layout-toggle-btn" 
@@ -394,22 +565,12 @@ function App() {
                         setFormPos({ x: 0, y: 0 }); 
                       }}
                     >
-                      {isFormFloating ? '◨ Dock' : '◳ Float'}
+                      {isFormFloating ? 'Dock' : 'Float'}
                     </button>
                   </div>
                 </div>
 
-                <form onSubmit={(e) => { 
-                    e.preventDefault(); 
-                    alert("Grievance Logged Successfully!"); 
-                    setSelectedCategory('Broken Gym Equipment'); 
-                    setSubCategory(''); 
-                    setParkNameInput('');
-                    setSectorIdInput('');
-                    if (searchMarkerRef.current) searchMarkerRef.current.remove();
-                    e.target.reset(); 
-                    setActiveTab('overview'); 
-                }} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <form onSubmit={handleComplaintSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   
                   <div className="form-group">
                     <label htmlFor="parkNameInput">Park Name</label>
@@ -502,6 +663,20 @@ function App() {
                       <textarea id="otherCommentsTextarea" name="otherComments" className="form-textarea" placeholder="Please specify the issue details..." rows="4" required />
                     </div>
                   )}
+                  
+                  <div className="form-group">
+                    <label htmlFor="remarksInput">Remarks (Optional)</label>
+                    <textarea 
+                      id="remarksInput" 
+                      name="remarks" 
+                      className="form-textarea" 
+                      placeholder="Add any specific location details or notes here..." 
+                      rows="2" 
+                      value={remarks}
+                      onChange={(e) => setRemarks(e.target.value)}
+                    />
+                  </div>
+
                   <button type="submit" className="submit-complaint-btn">Submit Complaint Log</button>
                 </form>
               </div>
@@ -509,9 +684,47 @@ function App() {
               <div className="complaint-map-container" style={{ position: 'relative' }}>
                 <div id="complaint-map" ref={mapRef}></div>
                 
+                <div style={{
+                  position: 'absolute',
+                  top: '60px',
+                  right: '10px',
+                  zIndex: 1000,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '5px'
+                }}>
+                  <button
+                    type="button"
+                    title={isMeasuring ? "Stop Measuring" : "Measurement Tool"}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setIsMeasuring(!isMeasuring);
+                      if (isMeasuring) resetMeasurement();
+                    }}
+                    style={{
+                      width: '34px',
+                      height: '33px',
+                      backgroundColor: '#ffffff',
+                      border: '2px solid rgba(0,0,0,0.2)',
+                      backgroundClip: 'padding-box',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '18px',
+                      padding: 0,
+                      color: isMeasuring ? '#dc2626' : '#333',
+                      transition: 'background-color 0.2s'
+                    }}
+                  >
+                    {isMeasuring ? '🛑' : '📐'}
+                  </button>
+                </div>
+
                 {isMeasuring && (
                   <div style={{
-                    position: 'absolute', top: '20px', right: '20px', zIndex: 1000,
+                    position: 'absolute', top: '100px', right: '10px', zIndex: 1000,
                     backgroundColor: 'var(--bg-card)', padding: '16px 24px',
                     borderRadius: '12px', border: '2px solid #1d4ed8',
                     boxShadow: '0 10px 25px rgba(0,0,0,0.15)', display: 'flex',
@@ -551,7 +764,7 @@ function App() {
                           fontSize: '12px', fontWeight: '600', color: 'var(--text-main)', cursor: 'pointer'
                         }}
                       >
-                        ↻ Clear Measurements
+                        Reset Data
                       </button>
                     )}
                   </div>
@@ -561,7 +774,7 @@ function App() {
             </div>
           )}
 
-          {activeTab === 'tracking' && <div className="view-placeholder"><h3>Before And After Status Coming Soon....</h3></div>}
+          {activeTab === 'Before And After Status' && <div className="view-placeholder"><h3>Before And After Status Coming Soon....</h3></div>}
           
           {activeTab === 'profile' && (
             <div className="profile-details-page">
@@ -572,7 +785,7 @@ function App() {
                   </div>
                   <div>
                     <h3 style={{ margin: 0, color: 'var(--text-main)' }}>{citizenName}</h3>
-                    <span className="badge verified" style={{ marginTop: '5px' }}>Verified Profile</span>
+                    <span className="badge verified" style={{ marginTop: '5px' }}>Citizen Profile</span>
                   </div>
                 </div>
                 

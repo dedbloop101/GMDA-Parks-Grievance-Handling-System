@@ -13,17 +13,17 @@ function Sidebar({ activeTab, onTabChange, isMobileOpen, onMobileClose }) {
               onClick={() => onTabChange('overview')}
               className={`nav-item ${activeTab === 'overview' ? 'active-tab' : ''}`}
             >
-              <span>📊</span> Overview Dashboard
+              <span>📊</span> Overview 
             </button>
             <button 
-              onClick={() => onTabChange('grievance')}
-              className={`nav-item ${activeTab === 'grievance' ? 'active-tab' : ''}`}
+              onClick={() => onTabChange('Complaint')}
+              className={`nav-item ${activeTab === 'Complaint' ? 'active-tab' : ''}`}
             >
               <span>📝</span> File Park Complaint
             </button>
             <button 
-              onClick={() => onTabChange('tracking')}
-              className={`nav-item ${activeTab === 'tracking' ? 'active-tab' : ''}`}
+              onClick={() => onTabChange('Before And After Status')}
+              className={`nav-item ${activeTab === 'Before And After Status' ? 'active-tab' : ''}`}
             >
               <span>📍</span> Before And After Status
             </button>
