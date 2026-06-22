@@ -25,7 +25,7 @@ function Navbar({ citizenName, theme, toggleTheme, onMenuToggle, onProfileClick,
           <p className="navbar-subtitle">Citizen Portal</p>
         </div>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
         
         {/* NOW WORKING: Theme engine variables bound correctly */}
         <button 

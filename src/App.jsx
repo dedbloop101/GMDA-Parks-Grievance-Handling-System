@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import * as turf from '@turf/turf';
 import './App.css';
 import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
 import DashboardOverview from './components/DashboardOverview';
+import MapComponent from './components/MapComponent';
 import gmdaLogo from './assets/gmda-logo.png'; 
 
 function App() {
@@ -21,7 +21,6 @@ function App() {
 
   const [theme, setTheme] = useState('light');
 
-  // 🔥 NEW: Password Change States
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -37,23 +36,9 @@ function App() {
   const [isDragging, setIsDragging] = useState(false);
   const dragRef = useRef({ startX: 0, startY: 0 });
 
-  const [isMeasuring, setIsMeasuring] = useState(false);
-  const [measurePoints, setMeasurePoints] = useState([]);
-  const [measureDistance, setMeasureDistance] = useState(0);
-  const [measureArea, setMeasureArea] = useState(0); 
-
   const [parkData, setParkData] = useState(null);
-  
   const [dashboardData, setDashboardData] = useState(null);
 
-  const mapRef = useRef(null);
-  const mapInstanceRef = useRef(null);
-  const isMeasuringRef = useRef(false);
-  const measureGroupRef = useRef(null);
-  const measureLineRef = useRef(null);
-  const measurePolygonRef = useRef(null); 
-  const searchMarkerRef = useRef(null);
-  
   const toggleTheme = () => setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
 
   const checkPasswordStrength = (pass) => {
@@ -65,21 +50,19 @@ function App() {
     if (/[0-9]/.test(pass)) score += 1;
     if (/[^A-Za-z0-9]/.test(pass)) score += 1;
 
-    if (score <= 2) return { label: 'Weak', color: '#dc2626', width: '33%' };
-    if (score === 3 || score === 4) return { label: 'Medium', color: '#f59e0b', width: '66%' };
-    if (score >= 5) return { label: 'Strong', color: '#10b981', width: '100%' };
+    if (score <= 2) return { label: 'Weak', color: '#b91c1c', width: '33%' };
+    if (score === 3 || score === 4) return { label: 'Medium', color: '#b45309', width: '66%' };
+    if (score >= 5) return { label: 'Strong', color: '#15803d', width: '100%' };
   };
 
   const strength = checkPasswordStrength(regPassword);
-  // Re-use strength checker for the new password field in the profile tab
   const newPassStrength = checkPasswordStrength(newPassword);
 
+  // Initial GeoJSON Load
   useEffect(() => {
     fetch('/gurugram_parks.geojson')
       .then(res => res.json())
-      .then(data => {
-        setParkData(data);
-      })
+      .then(data => setParkData(data))
       .catch(err => console.error("Failed to load GeoJSON:", err));
   }, []);
 
@@ -101,28 +84,6 @@ function App() {
     }
   }, [isLoggedIn, activeTab]);
 
-  useEffect(() => {
-    isMeasuringRef.current = isMeasuring;
-    if (mapInstanceRef.current && mapInstanceRef.current._container) {
-      mapInstanceRef.current._container.style.cursor = isMeasuring ? 'crosshair' : '';
-    }
-  }, [isMeasuring]);
-
-  const resetMeasurement = () => {
-    setMeasurePoints([]);
-    setMeasureDistance(0);
-    setMeasureArea(0);
-    if (measureGroupRef.current && measureLineRef.current && measurePolygonRef.current) {
-      measureGroupRef.current.clearLayers();
-      measurePolygonRef.current = window.L.polygon([], { 
-        color: '#1d4ed8', weight: 2, fillColor: '#3b82f6', fillOpacity: 0.2 
-      }).addTo(measureGroupRef.current);
-      measureLineRef.current = window.L.polyline([], { 
-        color: '#1d4ed8', weight: 4, dashArray: '6, 8' 
-      }).addTo(measureGroupRef.current);
-    }
-  };
-
   const handlePointerDown = (e) => {
     if (!isFormFloating) return; 
     setIsDragging(true);
@@ -140,141 +101,6 @@ function App() {
     setIsDragging(false);
     e.currentTarget.releasePointerCapture(e.pointerId);
   };
-
-  useEffect(() => {
-    if (activeTab === 'Complaint' && isLoggedIn && window.L && mapRef.current) {
-      if (mapInstanceRef.current) return;
-
-      try {
-        const mapInstance = window.L.map(mapRef.current).setView([28.4595, 77.0266], 12);
-        mapInstanceRef.current = mapInstance;
-
-        const osm = window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(mapInstance);
-        const topo = window.L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png');
-        const satellite = window.L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}');
-
-        window.L.control.layers({ 
-          "Street Map": osm, 
-          "Topographic": topo, 
-          "Satellite": satellite 
-        }, null, { position: 'topright' }).addTo(mapInstance);
-
-        measureGroupRef.current = window.L.layerGroup().addTo(mapInstance);
-        
-        measurePolygonRef.current = window.L.polygon([], { 
-          color: '#1d4ed8', weight: 2, fillColor: '#3b82f6', fillOpacity: 0.2 
-        }).addTo(measureGroupRef.current);
-        
-        measureLineRef.current = window.L.polyline([], { 
-          color: '#1d4ed8', weight: 4, dashArray: '6, 8' 
-        }).addTo(measureGroupRef.current);
-
-        const handleMapClick = (e) => {
-          if (!isMeasuringRef.current) return;
-
-          setMeasurePoints(prev => {
-            const newPoint = [e.latlng.lat, e.latlng.lng];
-            const updated = [...prev, newPoint];
-
-            window.L.circleMarker(e.latlng, {
-              radius: 5, color: '#1d4ed8', fillColor: '#ffffff', fillOpacity: 1, weight: 2
-            }).addTo(measureGroupRef.current);
-
-            measureLineRef.current.setLatLngs(updated);
-            
-            if (updated.length >= 3) {
-              measurePolygonRef.current.setLatLngs(updated);
-            } else {
-              measurePolygonRef.current.setLatLngs([]);
-            }
-
-            if (updated.length > 1) {
-              const turfCoords = updated.map(coord => [coord[1], coord[0]]);
-              const line = turf.lineString(turfCoords);
-              const distanceInMeters = turf.length(line, { units: 'meters' });
-              setMeasureDistance(distanceInMeters);
-
-              if (updated.length >= 3) {
-                const closedCoords = [...turfCoords, turfCoords[0]]; 
-                const polygon = turf.polygon([closedCoords]);
-                const areaInSqMeters = turf.area(polygon);
-                setMeasureArea(areaInSqMeters);
-              } else {
-                setMeasureArea(0);
-              }
-            }
-
-            return updated;
-          });
-        };
-
-        mapInstance.on('click', handleMapClick);
-
-      } catch (fatalError) {
-        console.error("Map Engine crashed:", fatalError);
-      }
-
-      return () => {
-        if (mapInstanceRef.current) {
-            mapInstanceRef.current.off('click');
-            mapInstanceRef.current.remove();
-            mapInstanceRef.current = null;
-        }
-      };
-    }
-  }, [activeTab, isLoggedIn]);
-
-  useEffect(() => {
-    if (!mapInstanceRef.current || !parkData || (!parkNameInput && !sectorIdInput)) return;
-
-    const searchTerm = parkNameInput.toLowerCase();
-    const sectorTerm = sectorIdInput.toLowerCase();
-
-    const foundPark = parkData.features.find(park => {
-      const name = park.properties.name ? park.properties.name.toLowerCase() : "";
-      const address = park.properties["addr:suburb"] ? park.properties["addr:suburb"].toLowerCase() : "";
-      const fullString = `${name} ${address}`;
-
-      if (!searchTerm && sectorTerm) {
-          return fullString.includes(sectorTerm);
-      }
-      
-      return name.includes(searchTerm) && 
-             (sectorTerm === '' || fullString.includes(sectorTerm));
-    });
-
-    if (foundPark) {
-      const centerPoint = turf.center(foundPark);
-      const [lng, lat] = centerPoint.geometry.coordinates;
-
-      mapInstanceRef.current.flyTo([lat, lng], 16, {
-        animate: true,
-        duration: 1.5 
-      });
-
-      if (searchMarkerRef.current) {
-        searchMarkerRef.current.remove();
-      }
-
-      const parkNameDisplay = foundPark.properties.name || "Unnamed Park Area";
-
-      searchMarkerRef.current = window.L.circleMarker([lat, lng], {
-        radius: 8,
-        color: '#dc2626',
-        fillColor: '#ef4444', 
-        fillOpacity: 0.8,
-        weight: 3
-      }).addTo(mapInstanceRef.current)
-        .bindPopup(`<b>${parkNameDisplay}</b><br>Coordinates: ${lat.toFixed(4)}, ${lng.toFixed(4)}`)
-        .openPopup();
-    }
-  }, [parkNameInput, sectorIdInput, parkData]);
-
-  useEffect(() => {
-    if (mapInstanceRef.current) {
-      setTimeout(() => mapInstanceRef.current.invalidateSize(), 400); 
-    }
-  }, [isFormFloating, isMobileMenuOpen]);
   
   const handleLoginSubmit = async (e) => {
     e.preventDefault();
@@ -289,12 +115,8 @@ function App() {
       const response = await fetch('http://10.10.3.132:8000/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          mobile: mobileInput,
-          password: password
-        })
+        body: JSON.stringify({ mobile: mobileInput, password: password })
       });
-
       const data = await response.json();
 
       if (response.ok) {
@@ -305,58 +127,35 @@ function App() {
         alert(`Login Failed: ${data.message}`);
       }
     } catch (error) {
-      console.error("Backend Error:", error);
-      alert("Failed to connect to the server. Have you registered? If no then please register first!");
+      alert("Failed to connect to the server. Have you registered?");
     }
   };
 
   const handleRegisterSubmit = async (e) => {
     e.preventDefault();
     
-    if (regMobile.length !== 10) {
-      alert("Registration Failed: Mobile number must be exactly 10 digits.");
-      return;
-    }
-
-    if (regPassword.length < 8) {
-      alert("Registration Failed: Password must be at least 8 characters long.");
-      return;
-    }
-
-    if (/\d{4}/.test(regPassword)) {
-      alert("Registration Failed: Password cannot contain more than 3 consecutive numbers.");
-      return;
-    }
+    if (regMobile.length !== 10) return alert("Registration Failed: Mobile number must be exactly 10 digits.");
+    if (regPassword.length < 8) return alert("Registration Failed: Password must be at least 8 characters long.");
+    if (/\d{4}/.test(regPassword)) return alert("Registration Failed: Password cannot contain more than 3 consecutive numbers.");
 
     try {
       const response = await fetch('http://10.10.3.132:8000/api/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fullName: regName,
-          mobile: regMobile, 
-          password: regPassword
-        })
+        body: JSON.stringify({ fullName: regName, mobile: regMobile, password: regPassword })
       });
-
       const data = await response.json();
 
       if (response.ok) {
         setCitizenName(regName);
-        // 🔥 BUGFIX: Save the registration mobile number into the active session state
         setMobileInput(regMobile);
-        
         setIsLoggedIn(true);
         setActiveTab('overview');
-
-        setRegName('');
-        setRegMobile('');
-        setRegPassword('');
+        setRegName(''); setRegMobile(''); setRegPassword('');
       } else {
         alert(`Error: ${data.message}`);
       }
     } catch (error) {
-      console.error("Backend Error:", error);
       alert("Failed to connect to the server. Is Flask running?");
     }
   };
@@ -386,7 +185,6 @@ function App() {
         setParkNameInput('');
         setSectorIdInput('');
         setRemarks('');
-        if (searchMarkerRef.current) searchMarkerRef.current.remove();
         
         fetchLiveDashboardData();
         setActiveTab('overview'); 
@@ -394,54 +192,32 @@ function App() {
         window.alert(`Error Logging Complaint: ${data.message}`);
       }
     } catch (error) {
-      console.error("Backend Error:", error);
       window.alert("Critical Failure: Could not connect to the GMDA servers.");
     }
   };
 
-  // 🔥 NEW: Password Change Submission Handler
   const handlePasswordChange = async (e) => {
     e.preventDefault();
 
-    if (newPassword !== confirmPassword) {
-      window.alert("Security Policy: New passwords do not match.");
-      return;
-    }
-
-    if (newPassword.length < 8) {
-      window.alert("Security Policy: New password must be at least 8 characters long.");
-      return;
-    }
-
-    if (/\d{4}/.test(newPassword)) {
-      window.alert("Security Policy: New password cannot contain more than 3 consecutive numbers.");
-      return;
-    }
+    if (newPassword !== confirmPassword) return window.alert("Security Policy: New passwords do not match.");
+    if (newPassword.length < 8) return window.alert("Security Policy: New password must be at least 8 characters long.");
+    if (/\d{4}/.test(newPassword)) return window.alert("Security Policy: New password cannot contain more than 3 consecutive numbers.");
 
     try {
       const response = await fetch('http://10.10.3.132:8000/api/change-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          mobile: mobileInput,
-          oldPassword: oldPassword,
-          newPassword: newPassword
-        })
+        body: JSON.stringify({ mobile: mobileInput, oldPassword: oldPassword, newPassword: newPassword })
       });
-
       const data = await response.json();
 
       if (response.ok) {
         window.alert("Success: Security credentials updated successfully.");
-        // Clean out the form inputs
-        setOldPassword('');
-        setNewPassword('');
-        setConfirmPassword('');
+        setOldPassword(''); setNewPassword(''); setConfirmPassword('');
       } else {
         window.alert(`Verification Error: ${data.message}`);
       }
     } catch (error) {
-      console.error("Backend Error:", error);
       window.alert("Critical Failure: Could not connect to the GMDA servers.");
     }
   };
@@ -457,7 +233,7 @@ function App() {
             </div>
             <div className="quick-nav-links">
               <button className="nav-anchor-btn" onClick={() => setAuthMode('register')}>Citizen Registration / Account Setup</button>
-              <button className="nav-anchor-btn" onClick={() => alert('Please Sign In first to register a complaint!')}>Register Your Grievance/Complaints</button>
+              <button className="nav-anchor-btn" onClick={() => alert('Please Sign In first to register a complaint!')}>Register Your Grievance/Complaints anonymously</button>
             </div>
           </div>
           <div className="right-auth-panel">
@@ -467,15 +243,9 @@ function App() {
                   <div className="stage-title">Citizen Secure Sign In</div>
                   <div className="input-wrapper">
                     <input 
-                      id="loginMobile" 
-                      name="loginMobile" 
-                      type="tel" 
-                      maxLength="10"
-                      className="input-field" 
-                      placeholder="10-Digit Mobile Number" 
-                      value={mobileInput} 
-                      onChange={(e) => setMobileInput(e.target.value.replace(/\D/g, ''))} 
-                      required 
+                      id="loginMobile" name="loginMobile" type="tel" maxLength="10" className="input-field" 
+                      placeholder="10-Digit Mobile Number" value={mobileInput} 
+                      onChange={(e) => setMobileInput(e.target.value.replace(/\D/g, ''))} required 
                     />
                   </div>
                   <div className="input-wrapper">
@@ -493,34 +263,19 @@ function App() {
                   </div>
                   <div className="input-wrapper">
                     <input 
-                      id="regMobile" 
-                      name="regMobile" 
-                      type="tel" 
-                      maxLength="10"
-                      className="input-field" 
-                      placeholder="10-Digit Mobile Number" 
-                      value={regMobile} 
-                      onChange={(e) => setRegMobile(e.target.value.replace(/\D/g, ''))} 
-                      required 
+                      id="regMobile" name="regMobile" type="tel" maxLength="10" className="input-field" 
+                      placeholder="10-Digit Mobile Number" value={regMobile} 
+                      onChange={(e) => setRegMobile(e.target.value.replace(/\D/g, ''))} required 
                     />
                   </div>
                   <div className="input-wrapper" style={{ marginBottom: regPassword ? '8px' : '16px' }}>
                     <input 
-                      id="regPassword" 
-                      name="regPassword" 
-                      type="password" 
-                      className="input-field" 
-                      placeholder="Create Password" 
-                      value={regPassword} 
+                      id="regPassword" name="regPassword" type="password" className="input-field" placeholder="Create Password" value={regPassword} 
                       onChange={(e) => {
                         const val = e.target.value;
-                        if (!/\d{4}/.test(val)) {
-                          setRegPassword(val);
-                        } else {
-                          window.alert("Security Policy: Passwords cannot contain more than 3 consecutive numbers.");
-                        }
-                      }} 
-                      required 
+                        if (!/\d{4}/.test(val)) setRegPassword(val);
+                        else window.alert("Security Policy: Passwords cannot contain more than 3 consecutive numbers.");
+                      }} required 
                     />
                   </div>
                   
@@ -530,13 +285,13 @@ function App() {
                         <span style={{ color: 'var(--text-muted)' }}>Password Strength</span>
                         <span>{strength.label}</span>
                       </div>
-                      <div style={{ height: '4px', backgroundColor: '#e2e8f0', borderRadius: '2px', marginTop: '4px', overflow: 'hidden' }}>
+                      <div style={{ height: '4px', backgroundColor: 'var(--border-slate)', borderRadius: '2px', marginTop: '4px', overflow: 'hidden' }}>
                         <div style={{ height: '100%', width: strength.width, backgroundColor: strength.color, transition: 'all 0.3s' }}></div>
                       </div>
                     </div>
                   )}
 
-                  <button type="submit" className="submit-portal-btn" style={{ backgroundColor: '#1e3a8a' }}>Create Account</button>
+                  <button type="submit" className="submit-portal-btn">Create Account</button>
                 </form>
               </div>
             )}
@@ -555,14 +310,22 @@ function App() {
         onMenuToggle={() => setMobileMenuOpen(!isMobileMenuOpen)} 
         onProfileClick={() => { setActiveTab('profile'); setMobileMenuOpen(false); }}
         onLogout={() => { 
-          setIsLoggedIn(false); 
-          setMobileInput(''); 
-          setPassword(''); 
-          setActiveTab('overview'); 
+          setIsLoggedIn(false); setMobileInput(''); setPassword(''); setActiveTab('overview'); 
         }}
       />
       <div className="workspace">
-        <Sidebar activeTab={activeTab} onTabChange={(tab) => { setActiveTab(tab); setMobileMenuOpen(false); }} isMobileOpen={isMobileMenuOpen} onMobileClose={() => setMobileMenuOpen(false)} />
+        <Sidebar 
+          activeTab={activeTab} 
+          onTabChange={(tab) => { setActiveTab(tab); setMobileMenuOpen(false); }} 
+          isMobileOpen={isMobileMenuOpen} 
+          onMobileClose={() => setMobileMenuOpen(false)}
+          onLogout={() => { 
+            setIsLoggedIn(false); 
+            setMobileInput(''); 
+            setPassword(''); 
+            setActiveTab('overview'); 
+          }}
+        />
         <main className="main-stage">
           <div className="stage-header">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -600,20 +363,14 @@ function App() {
                     cursor: isFormFloating ? (isDragging ? 'grabbing' : 'grab') : 'default'
                   }}
                 >
-                  <h3 style={{ color: 'var(--text-main)', margin: 0, pointerEvents: 'none' }}>
-                    Submit Complaint
-                  </h3>
+                  <h3 style={{ color: 'var(--text-main)', margin: 0, pointerEvents: 'none' }}>Submit Complaint</h3>
                   
                   <div style={{ display: 'flex', gap: '6px' }}>
-                  
                     <button 
                       type="button" 
                       className="layout-toggle-btn" 
                       onPointerDown={(e) => e.stopPropagation()} 
-                      onClick={() => {
-                        setIsFormFloating(!isFormFloating);
-                        setFormPos({ x: 0, y: 0 }); 
-                      }}
+                      onClick={() => { setIsFormFloating(!isFormFloating); setFormPos({ x: 0, y: 0 }); }}
                     >
                       {isFormFloating ? 'Dock' : 'Float'}
                     </button>
@@ -624,30 +381,12 @@ function App() {
                   
                   <div className="form-group">
                     <label htmlFor="parkNameInput">Park Name</label>
-                    <input 
-                      id="parkNameInput" 
-                      name="parkName" 
-                      type="text" 
-                      className="form-input" 
-                      value={parkNameInput}
-                      onChange={(e) => setParkNameInput(e.target.value)}
-                      placeholder="e.g., Leisure Valley Park"
-                      required 
-                    />
+                    <input id="parkNameInput" name="parkName" type="text" className="form-input" value={parkNameInput} onChange={(e) => setParkNameInput(e.target.value)} placeholder="e.g., Leisure Valley Park" required />
                   </div>
                   
                   <div className="form-group">
                     <label htmlFor="sectorIdInput">Sector ID</label>
-                    <input 
-                      id="sectorIdInput" 
-                      name="sectorId" 
-                      type="text" 
-                      className="form-input" 
-                      value={sectorIdInput}
-                      onChange={(e) => setSectorIdInput(e.target.value)}
-                      placeholder="e.g., Sector 29"
-                      required 
-                    />
+                    <input id="sectorIdInput" name="sectorId" type="text" className="form-input" value={sectorIdInput} onChange={(e) => setSectorIdInput(e.target.value)} placeholder="e.g., Sector 29" required />
                   </div>
                   
                   <div className="form-group">
@@ -659,6 +398,10 @@ function App() {
                       <option value="Play Area Issues">Play Area Issues</option>
                       <option value="Waterlogging">Waterlogging</option>
                       <option value="Garbage Accumulation">Garbage Accumulation</option>
+                      <option value="Walking Track Issues">Walking Track Issues</option>
+                      <option value="Overgrown Vegetation">Overgrown Vegetation</option>
+                      <option value="Public Amenities">Public Amenities (Water/Toilets)</option>
+                      <option value="Stray Animal Menace">Stray Animal Danger</option>
                       <option value="Other">Other</option>
                     </select>
                   </div>
@@ -707,6 +450,55 @@ function App() {
                       </select>
                     </div>
                   )}
+
+                  {selectedCategory === 'Walking Track Issues' && (
+                    <div className="form-group">
+                      <label htmlFor="subCategorySelect">Track Issue Type</label>
+                      <select id="subCategorySelect" name="subCategory" className="form-select" value={subCategory} onChange={(e) => setSubCategory(e.target.value)} required>
+                        <option value="" disabled>-- Please select the issue type --</option>
+                        <option value="Broken Tiles/Pavers">Broken Tiles/Pavers</option>
+                        <option value="Potholes/Uneven Surface">Potholes/Uneven Surface</option>
+                        <option value="Slippery Area">Slippery Area (Moss/Mud)</option>
+                      </select>
+                    </div>
+                  )}
+
+                  {selectedCategory === 'Overgrown Vegetation' && (
+                    <div className="form-group">
+                      <label htmlFor="subCategorySelect">Vegetation Issue Type</label>
+                      <select id="subCategorySelect" name="subCategory" className="form-select" value={subCategory} onChange={(e) => setSubCategory(e.target.value)} required>
+                        <option value="" disabled>-- Please select the issue type --</option>
+                        <option value="Grass Needs Mowing">Grass Needs Mowing</option>
+                        <option value="Dead/Fallen Branches">Dead/Fallen Branches</option>
+                        <option value="Shrubs Need Pruning">Shrubs Need Pruning</option>
+                      </select>
+                    </div>
+                  )}
+
+                  {selectedCategory === 'Public Amenities' && (
+                    <div className="form-group">
+                      <label htmlFor="subCategorySelect">Amenity Issue Type</label>
+                      <select id="subCategorySelect" name="subCategory" className="form-select" value={subCategory} onChange={(e) => setSubCategory(e.target.value)} required>
+                        <option value="" disabled>-- Please select the issue type --</option>
+                        <option value="Drinking Water Tap Broken">Drinking Water Tap Broken</option>
+                        <option value="Public Toilet Locked/Unclean">Public Toilet Locked/Unclean</option>
+                        <option value="Dustbins Missing/Full">Dustbins Missing/Full</option>
+                      </select>
+                    </div>
+                  )}
+
+                  {selectedCategory === 'Stray Animal Danger' && (
+                    <div className="form-group">
+                      <label htmlFor="subCategorySelect">Animal Issue Type</label>
+                      <select id="subCategorySelect" name="subCategory" className="form-select" value={subCategory} onChange={(e) => setSubCategory(e.target.value)} required>
+                        <option value="" disabled>-- Please select the issue type --</option>
+                        <option value="Aggressive Stray Dogs">Aggressive Stray Dogs</option>
+                        <option value="Cattle Inside Park">Cattle Inside Park</option>
+                        <option value="Dead Animal">Dead Animal</option>
+                      </select>
+                    </div>
+                  )}
+
                   {selectedCategory === 'Other' && (
                     <div className="form-group">
                       <label htmlFor="otherCommentsTextarea">Specify Issue Details</label>
@@ -716,109 +508,21 @@ function App() {
                   
                   <div className="form-group">
                     <label htmlFor="remarksInput">Remarks (Optional)</label>
-                    <textarea 
-                      id="remarksInput" 
-                      name="remarks" 
-                      className="form-textarea" 
-                      placeholder="Add any specific location details or notes here..." 
-                      rows="2" 
-                      value={remarks}
-                      onChange={(e) => setRemarks(e.target.value)}
-                    />
+                    <textarea id="remarksInput" name="remarks" className="form-textarea" placeholder="Add any specific location details or notes here..." rows="2" value={remarks} onChange={(e) => setRemarks(e.target.value)} />
                   </div>
 
                   <button type="submit" className="submit-complaint-btn">Submit Complaint Log</button>
                 </form>
               </div>
 
+              {/* NEW: Clean Map Component Integration */}
               <div className="complaint-map-container" style={{ position: 'relative' }}>
-                <div id="complaint-map" ref={mapRef}></div>
-                
-                <div style={{
-                  position: 'absolute',
-                  top: '60px',
-                  right: '10px',
-                  zIndex: 1000,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '5px'
-                }}>
-                  <button
-                    type="button"
-                    title={isMeasuring ? "Stop Measuring" : "Measurement Tool"}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      setIsMeasuring(!isMeasuring);
-                      if (isMeasuring) resetMeasurement();
-                    }}
-                    style={{
-                      width: '34px',
-                      height: '33px',
-                      backgroundColor: '#ffffff',
-                      border: '2px solid rgba(0,0,0,0.2)',
-                      backgroundClip: 'padding-box',
-                      borderRadius: '4px',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: '18px',
-                      padding: 0,
-                      color: isMeasuring ? '#dc2626' : '#333',
-                      transition: 'background-color 0.2s'
-                    }}
-                  >
-                    {isMeasuring ? '🛑' : '📐'}
-                  </button>
-                </div>
-
-                {isMeasuring && (
-                  <div style={{
-                    position: 'absolute', top: '100px', right: '10px', zIndex: 1000,
-                    backgroundColor: 'var(--bg-card)', padding: '16px 24px',
-                    borderRadius: '12px', border: '2px solid #1d4ed8',
-                    boxShadow: '0 10px 25px rgba(0,0,0,0.15)', display: 'flex',
-                    flexDirection: 'column', gap: '4px', minWidth: '200px', pointerEvents: 'auto'
-                  }}>
-                    <h4 style={{ margin: 0, fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                      Perimeter Distance
-                    </h4>
-                    <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-main)', lineHeight: '1' }}>
-                      {measureDistance < 1000 ? `${Math.round(measureDistance)} m` : `${(measureDistance / 1000).toFixed(2)} km`}
-                    </div>
-
-                    {measurePoints.length >= 3 && (
-                      <>
-                        <h4 style={{ margin: '12px 0 0 0', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                          Total Area
-                        </h4>
-                        <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--color-citizen)', lineHeight: '1' }}>
-                          {measureArea < 1000000 
-                            ? `${Math.round(measureArea).toLocaleString()} m²` 
-                            : `${(measureArea / 1000000).toFixed(2)} km²`}
-                        </div>
-                      </>
-                    )}
-
-                    <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '8px' }}>
-                      {measurePoints.length} points placed
-                    </div>
-                    
-                    {measurePoints.length > 0 && (
-                      <button 
-                        type="button" 
-                        onClick={resetMeasurement} 
-                        style={{
-                          marginTop: '8px', padding: '8px', backgroundColor: 'var(--color-input)', 
-                          border: '1px solid var(--border-slate)', borderRadius: '6px', 
-                          fontSize: '12px', fontWeight: '600', color: 'var(--text-main)', cursor: 'pointer'
-                        }}
-                      >
-                        Reset Data
-                      </button>
-                    )}
-                  </div>
-                )}
+                <MapComponent 
+                  isActive={activeTab === 'Complaint'}
+                  parkData={parkData}
+                  searchParkName={parkNameInput}
+                  searchSectorId={sectorIdInput}
+                />
               </div>
 
             </div>
@@ -829,7 +533,6 @@ function App() {
           {activeTab === 'profile' && (
             <div className="profile-details-page" style={{ flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
               
-              {/* Main Profile Info Card */}
               <div className="profile-card-large">
                 <div className="profile-card-header">
                   <div className="large-avatar">
@@ -853,7 +556,6 @@ function App() {
                 </div>
               </div>
 
-              {/* 🔥 NEW: Security Settings / Change Password Card */}
               <div className="profile-card-large">
                 <div className="profile-card-header" style={{ paddingBottom: '16px', marginBottom: '16px', borderBottom: '1px solid var(--border-slate)' }}>
                   <h3 style={{ margin: 0, color: 'var(--text-main)', fontSize: '15px', textTransform: 'uppercase' }}>Security Settings</h3>
@@ -862,34 +564,19 @@ function App() {
                 <form onSubmit={handlePasswordChange} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                   <div className="form-group">
                     <label htmlFor="oldPassword">Current Password</label>
-                    <input 
-                      id="oldPassword" 
-                      type="password" 
-                      className="form-input" 
-                      value={oldPassword}
-                      onChange={(e) => setOldPassword(e.target.value)}
-                      placeholder="Enter current password"
-                      required 
-                    />
+                    <input id="oldPassword" type="password" className="form-input" value={oldPassword} onChange={(e) => setOldPassword(e.target.value)} placeholder="Enter current password" required />
                   </div>
 
                   <div className="form-group">
                     <label htmlFor="newPassword">New Password</label>
                     <input 
-                      id="newPassword" 
-                      type="password" 
-                      className="form-input" 
-                      value={newPassword}
+                      id="newPassword" type="password" className="form-input" value={newPassword} 
                       onChange={(e) => {
                         const val = e.target.value;
-                        if (!/\d{4}/.test(val)) {
-                          setNewPassword(val);
-                        } else {
-                          window.alert("Security Policy: Passwords cannot contain more than 3 consecutive numbers.");
-                        }
+                        if (!/\d{4}/.test(val)) setNewPassword(val);
+                        else window.alert("Security Policy: Passwords cannot contain more than 3 consecutive numbers.");
                       }} 
-                      placeholder="Create a new secure password"
-                      required 
+                      placeholder="Create a new secure password" required 
                     />
                   </div>
 
@@ -907,15 +594,7 @@ function App() {
 
                   <div className="form-group">
                     <label htmlFor="confirmPassword">Confirm New Password</label>
-                    <input 
-                      id="confirmPassword" 
-                      type="password" 
-                      className="form-input" 
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      placeholder="Re-type new password"
-                      required 
-                    />
+                    <input id="confirmPassword" type="password" className="form-input" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Re-type new password" required />
                   </div>
 
                   <button type="submit" className="submit-complaint-btn" style={{ marginTop: '5px' }}>Update Password</button>
