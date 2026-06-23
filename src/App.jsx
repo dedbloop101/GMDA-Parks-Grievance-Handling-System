@@ -68,7 +68,7 @@ function App() {
 
   const fetchLiveDashboardData = async () => {
     try {
-      const response = await fetch('http://10.10.3.132:8000/api/complaints', { cache: 'no-store' });
+      const response = await fetch('http://127.0.0.1:8000/api/complaints', { cache: 'no-store' });
       if (response.ok) {
         const data = await response.json();
         setDashboardData({ kpis: data.kpis, complaints: data.complaints });
@@ -112,7 +112,7 @@ function App() {
     }
 
     try {
-      const response = await fetch('http://10.10.3.132:8000/api/login', {
+      const response = await fetch('http://127.0.0.1:8000/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mobile: mobileInput, password: password })
@@ -139,7 +139,7 @@ function App() {
     if (/\d{4}/.test(regPassword)) return alert("Registration Failed: Password cannot contain more than 3 consecutive numbers.");
 
     try {
-      const response = await fetch('http://10.10.3.132:8000/api/register', {
+      const response = await fetch('http://127.0.0.1:8000/api/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fullName: regName, mobile: regMobile, password: regPassword })
@@ -164,7 +164,7 @@ function App() {
     e.preventDefault();
     
     try {
-      const response = await fetch('http://10.10.3.132:8000/api/complaints', {
+      const response = await fetch('http://127.0.0.1:8000/api/complaints', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -204,7 +204,7 @@ function App() {
     if (/\d{4}/.test(newPassword)) return window.alert("Security Policy: New password cannot contain more than 3 consecutive numbers.");
 
     try {
-      const response = await fetch('http://10.10.3.132:8000/api/change-password', {
+      const response = await fetch('http://127.0.0.1:8000/api/change-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mobile: mobileInput, oldPassword: oldPassword, newPassword: newPassword })
@@ -401,7 +401,7 @@ function App() {
                       <option value="Walking Track Issues">Walking Track Issues</option>
                       <option value="Overgrown Vegetation">Overgrown Vegetation</option>
                       <option value="Public Amenities">Public Amenities (Water/Toilets)</option>
-                      <option value="Stray Animal Menace">Stray Animal Danger</option>
+                      <option value="Stray Animal Danger">Stray Animal Danger</option>
                       <option value="Other">Other</option>
                     </select>
                   </div>
@@ -494,7 +494,7 @@ function App() {
                         <option value="" disabled>-- Please select the issue type --</option>
                         <option value="Aggressive Stray Dogs">Aggressive Stray Dogs</option>
                         <option value="Cattle Inside Park">Cattle Inside Park</option>
-                        <option value="Dead Animal">Dead Animal</option>
+                        {/* <option value="Dead Animal">Dead Animal</option> */}
                       </select>
                     </div>
                   )}
