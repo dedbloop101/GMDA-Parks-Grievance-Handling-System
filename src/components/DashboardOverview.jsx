@@ -34,11 +34,11 @@ function DashboardOverview({ data, parkData }) {
           <h3 style={{ color: '#15803d' }}>{kpis.resolvedIssues}</h3>
         </div>
         <div className="kpi-card">
-          <p>Active Complaints</p>
+          <p>Unresolved Complaints</p>
           <h3 style={{ color: '#b91c1c' }}>{kpis.pendingGrievances}</h3>
         </div>
         <div className="kpi-card">
-          <p>Dispatched Field Staff</p>
+          <p>Work in Progress</p>
           <h3 style={{ color: 'var(--text-main)' }}>{kpis.activeFieldStaff}</h3>
         </div>
       </div>
@@ -79,7 +79,7 @@ function DashboardOverview({ data, parkData }) {
         <table className="data-table">
           <thead>
             <tr>
-              <th>Log ID</th>
+              <th>Park ID</th>
               <th>Park Landmark</th>
               <th>Sector Name</th>
               <th>Park Issue</th>

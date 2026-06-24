@@ -7,17 +7,25 @@ import MapComponent from './components/MapComponent';
 import gmdaLogo from './assets/gmda-logo.png'; 
 
 function App() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  
+  
+  // 🔥NEW: SESSION PERSISTENCE (STEP 1)
+  // Instead of defaulting to false/empty, we first check localStorage.
+  // This prevents the user from being kicked out when they refresh the page.
+
+  const [isLoggedIn, setIsLoggedIn] = useState(() => localStorage.getItem('isLoggedIn') === 'true');
+  const [citizenName, setCitizenName] = useState(() => localStorage.getItem('citizenName') || 'Chirag Panwar'); 
+  const [mobileInput, setMobileInput] = useState(() => localStorage.getItem('userMobile') || '');
+
+
   const [authMode, setAuthMode] = useState('login'); 
   const [activeTab, setActiveTab] = useState('overview');
   const [isMobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  const [mobileInput, setMobileInput] = useState('');
   const [password, setPassword] = useState('');
   const [regName, setRegName] = useState(''); 
   const [regMobile, setRegMobile] = useState('');
   const [regPassword, setRegPassword] = useState('');
-  const [citizenName, setCitizenName] = useState('Chirag Panwar'); 
 
   const [theme, setTheme] = useState('light');
 
@@ -38,6 +46,22 @@ function App() {
 
   const [parkData, setParkData] = useState(null);
   const [dashboardData, setDashboardData] = useState(null);
+
+
+  // 🔥 NEW: MASTER LOGOUT FUNCTION (STEP 2)
+  // This securely wipes the state AND destroys the browser's saved session.
+
+  const handleSecureLogout = () => {
+    setIsLoggedIn(false);
+    setMobileInput('');
+    setPassword('');
+    setActiveTab('overview');
+    
+    localStorage.removeItem('isLoggedIn');
+    localStorage.removeItem('citizenName');
+    localStorage.removeItem('userMobile');
+  };
+
 
   const toggleTheme = () => setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
 
@@ -123,6 +147,15 @@ function App() {
         setCitizenName(data.user.fullName); 
         setIsLoggedIn(true);
         setActiveTab('overview');
+
+      
+        // 🔥 NEW: BROWSER SAVE (STEP 3a)
+        // Commits the successful login tokens to the browser's hard drive
+      
+        localStorage.setItem('isLoggedIn', 'true');
+        localStorage.setItem('citizenName', data.user.fullName);
+        localStorage.setItem('userMobile', data.user.mobile);
+      
       } else {
         alert(`Login Failed: ${data.message}`);
       }
@@ -151,6 +184,16 @@ function App() {
         setMobileInput(regMobile);
         setIsLoggedIn(true);
         setActiveTab('overview');
+
+      
+        // 🔥 NEW: BROWSER SAVE (STEP 3b)
+        // Commits the newly registered user tokens to the browser's hard drive
+      
+        localStorage.setItem('isLoggedIn', 'true');
+        localStorage.setItem('citizenName', regName);
+        localStorage.setItem('userMobile', regMobile);
+      
+
         setRegName(''); setRegMobile(''); setRegPassword('');
       } else {
         alert(`Error: ${data.message}`);
@@ -228,19 +271,23 @@ function App() {
         <div className="portal-container">
           <div className="left-action-panel">
             <div className="gmda-branding-hub">
+            {/* Groups the Logo and Heading together horizontally */}
+            <div className="branding-header-row">
               <img src={gmdaLogo} alt="GMDA" />
-              <h2 className="system-headline">Parks Grievance Handling System</h2>
+              <h1 className="system-headline">Parks Grievance Handling System</h1>
+            </div>
+              <p className="system-tagline">One Stop Solution for Your Park Related Concerns</p>
             </div>
             <div className="quick-nav-links">
-              <button className="nav-anchor-btn" onClick={() => setAuthMode('register')}>Citizen Registration / Account Setup</button>
-              <button className="nav-anchor-btn" onClick={() => alert('Please Sign In first to register a complaint!')}>Register Your Grievance/Complaints anonymously</button>
+              <button className="nav-anchor-btn" onClick={() => setAuthMode('register')}>Account Setup</button>
+              <button className="nav-anchor-btn" onClick={() => alert('Please Sign In first to register a complaint!')}>Register Complaints </button>
             </div>
           </div>
           <div className="right-auth-panel">
             {authMode === 'login' ? (
               <div className="form-stage-box">
                 <form onSubmit={handleLoginSubmit}>
-                  <div className="stage-title">Citizen Secure Sign In</div>
+                  <div className="stage-title-another"> Sign-In</div>
                   <div className="input-wrapper">
                     <input 
                       id="loginMobile" name="loginMobile" type="tel" maxLength="10" className="input-field" 
@@ -256,21 +303,24 @@ function App() {
               </div>
             ) : (
               <div className="form-stage-box">
-                <div className="stage-title">Citizen Account Registration</div>
+                <div className="stage-title">Account Registration</div>
+                <div className="input-wrapper">
+                  <p><i>All fields are Mandatory*</i></p>
+                </div>
                 <form onSubmit={handleRegisterSubmit}>
                   <div className="input-wrapper">
-                    <input id="regName" name="regName" type="text" className="input-field" placeholder="Full Name" value={regName} onChange={(e) => setRegName(e.target.value)} required />
+                    <input id="regName" name="regName" type="text" className="input-field" placeholder="Full Name*" value={regName} onChange={(e) => setRegName(e.target.value)} required />
                   </div>
                   <div className="input-wrapper">
                     <input 
                       id="regMobile" name="regMobile" type="tel" maxLength="10" className="input-field" 
-                      placeholder="10-Digit Mobile Number" value={regMobile} 
+                      placeholder="10-Digit Mobile Number*" value={regMobile} 
                       onChange={(e) => setRegMobile(e.target.value.replace(/\D/g, ''))} required 
                     />
                   </div>
                   <div className="input-wrapper" style={{ marginBottom: regPassword ? '8px' : '16px' }}>
                     <input 
-                      id="regPassword" name="regPassword" type="password" className="input-field" placeholder="Create Password" value={regPassword} 
+                      id="regPassword" name="regPassword" type="password" className="input-field" placeholder="Create Password*" value={regPassword} 
                       onChange={(e) => {
                         const val = e.target.value;
                         if (!/\d{4}/.test(val)) setRegPassword(val);
@@ -309,9 +359,12 @@ function App() {
         toggleTheme={toggleTheme}
         onMenuToggle={() => setMobileMenuOpen(!isMobileMenuOpen)} 
         onProfileClick={() => { setActiveTab('profile'); setMobileMenuOpen(false); }}
-        onLogout={() => { 
-          setIsLoggedIn(false); setMobileInput(''); setPassword(''); setActiveTab('overview'); 
-        }}
+        
+      
+        // 🔥 NEW: INJECT LOGOUT (STEP 4a)
+        // Passes the secure logout function to the Top Navbar
+        
+        onLogout={handleSecureLogout} 
       />
       <div className="workspace">
         <Sidebar 
@@ -319,12 +372,11 @@ function App() {
           onTabChange={(tab) => { setActiveTab(tab); setMobileMenuOpen(false); }} 
           isMobileOpen={isMobileMenuOpen} 
           onMobileClose={() => setMobileMenuOpen(false)}
-          onLogout={() => { 
-            setIsLoggedIn(false); 
-            setMobileInput(''); 
-            setPassword(''); 
-            setActiveTab('overview'); 
-          }}
+          
+          
+          // NEW: INJECT LOGOUT (STEP 4b)
+          // Passes the secure logout function to the Mobile Sidebar
+          onLogout={handleSecureLogout} 
         />
         <main className="main-stage">
           <div className="stage-header">
@@ -378,39 +430,39 @@ function App() {
                 </div>
 
                 <form onSubmit={handleComplaintSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  
-                  <div className="form-group">
-                    <label htmlFor="parkNameInput">Park Name</label>
-                    <input id="parkNameInput" name="parkName" type="text" className="form-input" value={parkNameInput} onChange={(e) => setParkNameInput(e.target.value)} placeholder="e.g., Leisure Valley Park" required />
-                  </div>
-                  
-                  <div className="form-group">
-                    <label htmlFor="sectorIdInput">Sector ID</label>
+
+                   <div className="form-group">
+                    <label htmlFor="sectorIdInput">Sector Number*</label>
                     <input id="sectorIdInput" name="sectorId" type="text" className="form-input" value={sectorIdInput} onChange={(e) => setSectorIdInput(e.target.value)} placeholder="e.g., Sector 29" required />
                   </div>
                   
                   <div className="form-group">
-                    <label htmlFor="categorySelect">Category</label>
+                    <label htmlFor="parkNameInput">Park Name*</label>
+                    <input id="parkNameInput" name="parkName" type="text" className="form-input" value={parkNameInput} onChange={(e) => setParkNameInput(e.target.value)} placeholder="e.g., Leisure Valley Park" required />
+                  </div>
+                  
+                  <div className="form-group">
+                    <label htmlFor="categorySelect">Complaint Category*</label>
                     <select id="categorySelect" name="category" className="form-select" value={selectedCategory} onChange={(e) => { setSelectedCategory(e.target.value); setSubCategory(''); }}>
-                      <option value="Broken Gym Equipment">Broken Gym Equipment</option>
-                      <option value="Streetlights Not Working">Streetlights Not Working</option>
-                      <option value="Damaged Benches">Damaged Benches</option>
-                      <option value="Play Area Issues">Play Area Issues</option>
+                      <option value="Broken Gym Equipment">Gym Equipment Related</option>
+                      <option value="Streetlights Not Working">Streetlights Related</option>
+                      <option value="Damaged Benches">Park Benches Related</option>
+                      <option value="Play Area Issues">Park Play Area Related</option>
                       <option value="Waterlogging">Waterlogging</option>
                       <option value="Garbage Accumulation">Garbage Accumulation</option>
-                      <option value="Walking Track Issues">Walking Track Issues</option>
-                      <option value="Overgrown Vegetation">Overgrown Vegetation</option>
-                      <option value="Public Amenities">Public Amenities (Water/Toilets)</option>
-                      <option value="Stray Animal Danger">Stray Animal Danger</option>
+                      <option value="Walking Track Issues">Walking Track Related</option>
+                      <option value="Overgrown Vegetation">Vegetation/Terrain Related</option>
+                      <option value="Public Amenities">Public Amenities Related</option>
+                      <option value="Stray Animal Danger">Animal Related</option>
                       <option value="Other">Other</option>
                     </select>
                   </div>
                   
                   {selectedCategory === 'Broken Gym Equipment' && (
                     <div className="form-group">
-                      <label htmlFor="subCategorySelect">Gym Equipment Issue Type</label>
+                      <label htmlFor="subCategorySelect">Gym Equipment Related Complaint Type*</label>
                       <select id="subCategorySelect" name="subCategory" className="form-select" value={subCategory} onChange={(e) => setSubCategory(e.target.value)} required>
-                        <option value="" disabled>-- Please select the issue type --</option>
+                        <option value="" disabled>-- Please select the complaint type --</option>
                         <option value="No Gym Equipment">No Gym Equipment</option>
                         <option value="Damaged/Non-functional">Damaged/Non-functional</option>
                         <option value="Missing Parts">Missing Parts</option> 
@@ -419,9 +471,9 @@ function App() {
                   )}
                    {selectedCategory === 'Damaged Benches' && (
                     <div className="form-group">
-                      <label htmlFor="subCategorySelect">Benches Issue Type</label>
+                      <label htmlFor="subCategorySelect">Park Benches Related Complaint <Type></Type></label>
                       <select id="subCategorySelect" name="subCategory" className="form-select" value={subCategory} onChange={(e) => setSubCategory(e.target.value)} required>
-                        <option value="" disabled>-- Please select the issue type --</option>
+                        <option value="" disabled>-- Please select the complaint type --</option>
                         <option value="No Benches">No Benches</option>
                         <option value="Damaged/Non-functional">Damaged/Non-functional</option>
                         <option value="Graffiti/Vandalism">Graffiti/Vandalism on the benches</option>
@@ -430,9 +482,9 @@ function App() {
                   )}
                    {selectedCategory === 'Streetlights Not Working' && (
                     <div className="form-group">
-                      <label htmlFor="subCategorySelect">Streetlight Issue Type</label>
+                      <label htmlFor="subCategorySelect">Streetlight Related Complaint Type*</label>
                       <select id="subCategorySelect" name="subCategory" className="form-select" value={subCategory} onChange={(e) => setSubCategory(e.target.value)} required>
-                        <option value="" disabled>-- Please select the issue type --</option>
+                        <option value="" disabled>-- Please select the complaint type --</option>
                         <option value="No Street Light">No Street Light</option>
                         <option value="Dark spot">Dark spot</option>
                         <option value="Fused Bulb">Fused Bulb</option>
@@ -441,9 +493,9 @@ function App() {
                   )}
                   {selectedCategory === 'Play Area Issues' && (
                     <div className="form-group">
-                      <label htmlFor="subCategorySelect">Play Area Issue Type</label>
+                      <label htmlFor="subCategorySelect">Park Play Area Related Complaint Type*</label>
                       <select id="subCategorySelect" name="subCategory" className="form-select" value={subCategory} onChange={(e) => setSubCategory(e.target.value)} required>
-                        <option value="" disabled>-- Please select the issue type --</option>
+                        <option value="" disabled>-- Please select the complaint type --</option>
                         <option value="No Play Equipment">No Play Equipment</option>
                         <option value="Damaged/Non-functional">Damaged/Non-functional</option>
                         <option value="Safety Hazards">Safety Hazards (e.g. sharp edges, broken parts)</option>
@@ -453,9 +505,9 @@ function App() {
 
                   {selectedCategory === 'Walking Track Issues' && (
                     <div className="form-group">
-                      <label htmlFor="subCategorySelect">Track Issue Type</label>
+                      <label htmlFor="subCategorySelect">Walking Track Related Complaint Type*</label>
                       <select id="subCategorySelect" name="subCategory" className="form-select" value={subCategory} onChange={(e) => setSubCategory(e.target.value)} required>
-                        <option value="" disabled>-- Please select the issue type --</option>
+                        <option value="" disabled>-- Please select the complaint type --</option>
                         <option value="Broken Tiles/Pavers">Broken Tiles/Pavers</option>
                         <option value="Potholes/Uneven Surface">Potholes/Uneven Surface</option>
                         <option value="Slippery Area">Slippery Area (Moss/Mud)</option>
@@ -465,9 +517,9 @@ function App() {
 
                   {selectedCategory === 'Overgrown Vegetation' && (
                     <div className="form-group">
-                      <label htmlFor="subCategorySelect">Vegetation Issue Type</label>
+                      <label htmlFor="subCategorySelect">Vegetation Related Complaint Type* </label>
                       <select id="subCategorySelect" name="subCategory" className="form-select" value={subCategory} onChange={(e) => setSubCategory(e.target.value)} required>
-                        <option value="" disabled>-- Please select the issue type --</option>
+                        <option value="" disabled>-- Please select the complaint type --</option>
                         <option value="Grass Needs Mowing">Grass Needs Mowing</option>
                         <option value="Dead/Fallen Branches">Dead/Fallen Branches</option>
                         <option value="Shrubs Need Pruning">Shrubs Need Pruning</option>
@@ -477,9 +529,9 @@ function App() {
 
                   {selectedCategory === 'Public Amenities' && (
                     <div className="form-group">
-                      <label htmlFor="subCategorySelect">Amenity Issue Type</label>
+                      <label htmlFor="subCategorySelect">Amenity Related Complaint Type*</label>
                       <select id="subCategorySelect" name="subCategory" className="form-select" value={subCategory} onChange={(e) => setSubCategory(e.target.value)} required>
-                        <option value="" disabled>-- Please select the issue type --</option>
+                        <option value="" disabled>-- Please select the complaint type --</option>
                         <option value="Drinking Water Tap Broken">Drinking Water Tap Broken</option>
                         <option value="Public Toilet Locked/Unclean">Public Toilet Locked/Unclean</option>
                         <option value="Dustbins Missing/Full">Dustbins Missing/Full</option>
@@ -489,19 +541,19 @@ function App() {
 
                   {selectedCategory === 'Stray Animal Danger' && (
                     <div className="form-group">
-                      <label htmlFor="subCategorySelect">Animal Issue Type</label>
+                      <label htmlFor="subCategorySelect">Animal Related Complaint Type*</label>
                       <select id="subCategorySelect" name="subCategory" className="form-select" value={subCategory} onChange={(e) => setSubCategory(e.target.value)} required>
-                        <option value="" disabled>-- Please select the issue type --</option>
+                        <option value="" disabled>-- Please select the complaint type --</option>
                         <option value="Aggressive Stray Dogs">Aggressive Stray Dogs</option>
                         <option value="Cattle Inside Park">Cattle Inside Park</option>
-                        {/* <option value="Dead Animal">Dead Animal</option> */}
+                        <option value="Dead Animal">Dead Animal</option> 
                       </select>
                     </div>
                   )}
 
                   {selectedCategory === 'Other' && (
                     <div className="form-group">
-                      <label htmlFor="otherCommentsTextarea">Specify Issue Details</label>
+                      <label htmlFor="otherCommentsTextarea">Specify Issue Details*</label>
                       <textarea id="otherCommentsTextarea" name="otherComments" className="form-textarea" placeholder="Please specify the issue details..." rows="4" required />
                     </div>
                   )}
@@ -511,7 +563,7 @@ function App() {
                     <textarea id="remarksInput" name="remarks" className="form-textarea" placeholder="Add any specific location details or notes here..." rows="2" value={remarks} onChange={(e) => setRemarks(e.target.value)} />
                   </div>
 
-                  <button type="submit" className="submit-complaint-btn">Submit Complaint Log</button>
+                  <button type="submit" className="submit-complaint-btn">Submit</button>
                 </form>
               </div>
 
@@ -558,7 +610,7 @@ function App() {
 
               <div className="profile-card-large">
                 <div className="profile-card-header" style={{ paddingBottom: '16px', marginBottom: '16px', borderBottom: '1px solid var(--border-slate)' }}>
-                  <h3 style={{ margin: 0, color: 'var(--text-main)', fontSize: '15px', textTransform: 'uppercase' }}>Security Settings</h3>
+                  <h3 style={{ margin: 0, color: 'var(--text-main)', fontSize: '15px', textTransform: 'uppercase' }}>Update Security Settings</h3>
                 </div>
                 
                 <form onSubmit={handlePasswordChange} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
@@ -609,4 +661,4 @@ function App() {
   );
 }
 
-export default App;
+export default App;1
