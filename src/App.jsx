@@ -5,18 +5,18 @@ import Sidebar from './components/Sidebar';
 import DashboardOverview from './components/DashboardOverview';
 import MapComponent from './components/MapComponent';
 import gmdaLogo from './assets/gmda-logo.png'; 
+import AdminDashboard from './components/AdminDashboard';
 
 function App() {
   
-  
-  // 🔥NEW: SESSION PERSISTENCE (STEP 1)
+  // 🔥 NEW: SESSION PERSISTENCE (STEP 1)
   // Instead of defaulting to false/empty, we first check localStorage.
   // This prevents the user from being kicked out when they refresh the page.
 
   const [isLoggedIn, setIsLoggedIn] = useState(() => localStorage.getItem('isLoggedIn') === 'true');
   const [citizenName, setCitizenName] = useState(() => localStorage.getItem('citizenName') || 'Chirag Panwar'); 
   const [mobileInput, setMobileInput] = useState(() => localStorage.getItem('userMobile') || '');
-
+  const [userRole, setUserRole] = useState(() => localStorage.getItem('userRole') || 'citizen');
 
   const [authMode, setAuthMode] = useState('login'); 
   const [activeTab, setActiveTab] = useState('overview');
@@ -47,7 +47,6 @@ function App() {
   const [parkData, setParkData] = useState(null);
   const [dashboardData, setDashboardData] = useState(null);
 
-
   // 🔥 NEW: MASTER LOGOUT FUNCTION (STEP 2)
   // This securely wipes the state AND destroys the browser's saved session.
 
@@ -55,13 +54,14 @@ function App() {
     setIsLoggedIn(false);
     setMobileInput('');
     setPassword('');
+    setUserRole('citizen');
     setActiveTab('overview');
     
     localStorage.removeItem('isLoggedIn');
     localStorage.removeItem('citizenName');
     localStorage.removeItem('userMobile');
+    localStorage.removeItem('userRole'); // 🔥 FIXED: Actually wipes the role now
   };
-
 
   const toggleTheme = () => setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
 
@@ -92,7 +92,8 @@ function App() {
 
   const fetchLiveDashboardData = async () => {
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/complaints', { cache: 'no-store' });
+      // NEW: Pass the citizenName as a query parameter to the backend
+      const response = await fetch(`http://127.0.0.1:8000/api/complaints?citizenName=${encodeURIComponent(citizenName)}`, { cache: 'no-store' });
       if (response.ok) {
         const data = await response.json();
         setDashboardData({ kpis: data.kpis, complaints: data.complaints });
@@ -146,15 +147,16 @@ function App() {
       if (response.ok) {
         setCitizenName(data.user.fullName); 
         setIsLoggedIn(true);
+        setUserRole(data.user.role);
         setActiveTab('overview');
 
-      
         // 🔥 NEW: BROWSER SAVE (STEP 3a)
         // Commits the successful login tokens to the browser's hard drive
       
         localStorage.setItem('isLoggedIn', 'true');
         localStorage.setItem('citizenName', data.user.fullName);
         localStorage.setItem('userMobile', data.user.mobile);
+        localStorage.setItem('userRole', data.user.role);
       
       } else {
         alert(`Login Failed: ${data.message}`);
@@ -185,14 +187,12 @@ function App() {
         setIsLoggedIn(true);
         setActiveTab('overview');
 
-      
         // 🔥 NEW: BROWSER SAVE (STEP 3b)
         // Commits the newly registered user tokens to the browser's hard drive
       
         localStorage.setItem('isLoggedIn', 'true');
         localStorage.setItem('citizenName', regName);
         localStorage.setItem('userMobile', regMobile);
-      
 
         setRegName(''); setRegMobile(''); setRegPassword('');
       } else {
@@ -341,7 +341,26 @@ function App() {
                     </div>
                   )}
 
-                  <button type="submit" className="submit-portal-btn">Create Account</button>
+                  <button type="submit" className="submit-portal-btn">Sign Up</button>
+
+                  <div style={{ textAlign: 'center', marginTop: '15px' }}>
+                    <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Already registered? </span>
+                    <button 
+                      type="button" 
+                      onClick={() => setAuthMode('login')}
+                      style={{ 
+                        background: 'none', 
+                        border: 'none', 
+                        color: 'var(--color-admin)', 
+                        fontWeight: 'bold', 
+                        fontSize: '13px',
+                        cursor: 'pointer',
+                        textDecoration: 'underline'
+                      }}
+                    >
+                      Sign In here
+                    </button>
+                  </div>
                 </form>
               </div>
             )}
@@ -360,10 +379,8 @@ function App() {
         onMenuToggle={() => setMobileMenuOpen(!isMobileMenuOpen)} 
         onProfileClick={() => { setActiveTab('profile'); setMobileMenuOpen(false); }}
         
-      
-        // 🔥 NEW: INJECT LOGOUT (STEP 4a)
+        // NEW: INJECT LOGOUT (STEP 4a)
         // Passes the secure logout function to the Top Navbar
-        
         onLogout={handleSecureLogout} 
       />
       <div className="workspace">
@@ -372,7 +389,6 @@ function App() {
           onTabChange={(tab) => { setActiveTab(tab); setMobileMenuOpen(false); }} 
           isMobileOpen={isMobileMenuOpen} 
           onMobileClose={() => setMobileMenuOpen(false)}
-          
           
           // NEW: INJECT LOGOUT (STEP 4b)
           // Passes the secure logout function to the Mobile Sidebar
@@ -387,7 +403,11 @@ function App() {
             </div>
           </div>
 
-          {activeTab === 'overview' && <DashboardOverview data={dashboardData} parkData={parkData} />}
+          {activeTab === 'overview' && (
+             userRole === 'admin' 
+               ? <AdminDashboard /> 
+               : <DashboardOverview data={dashboardData} parkData={parkData} />
+          )}
           
           {activeTab === 'Complaint' && (
             <div className={`complaint-portal-layout ${!isFormFloating ? 'docked' : ''}`}>
@@ -471,7 +491,7 @@ function App() {
                   )}
                    {selectedCategory === 'Damaged Benches' && (
                     <div className="form-group">
-                      <label htmlFor="subCategorySelect">Park Benches Related Complaint <Type></Type></label>
+                      <label htmlFor="subCategorySelect">Park Benches Related Complaint Type</label>
                       <select id="subCategorySelect" name="subCategory" className="form-select" value={subCategory} onChange={(e) => setSubCategory(e.target.value)} required>
                         <option value="" disabled>-- Please select the complaint type --</option>
                         <option value="No Benches">No Benches</option>
@@ -586,14 +606,34 @@ function App() {
             <div className="profile-details-page" style={{ flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
               
               <div className="profile-card-large">
-                <div className="profile-card-header">
-                  <div className="large-avatar">
+                <div className="profile-card-header" style={{ 
+                  display: 'flex', 
+                  flexDirection: 'column', 
+                  alignItems: 'center', 
+                  gap: '25px', 
+                  textAlign: 'center',
+                  paddingBottom: '20px' 
+                }}>
+                  
+                  {/* 1. TOP: The Badge */}
+                  <span className="badge verified" style={{ 
+                    fontSize: '18px', 
+                    padding: '6px 14px', 
+                    fontWeight: '800', 
+                    letterSpacing: '1px'
+                  }}>
+                    CITIZEN PROFILE
+                  </span>
+
+                  {/* 2. CENTER: The Avatar Logo */}
+                  <div className="large-avatar" style={{ margin: '0' }}>
                     {(citizenName || "User").split(" ").map(n => n[0]).join("").toUpperCase().substring(0, 2)}
                   </div>
-                  <div>
-                    <h3 style={{ margin: 0, color: 'var(--text-main)' }}>{citizenName}</h3>
-                    <span className="badge verified" style={{ marginTop: '5px' }}>Citizen Profile</span>
-                  </div>
+                  
+                  {/* 3. BOTTOM: The Name */}
+                  <h3 style={{ margin: 0, color: 'var(--text-main)', fontSize: '28px' }}>
+                    {citizenName}
+                  </h3>
                 </div>
                 
                 <div className="profile-card-body">
@@ -661,4 +701,4 @@ function App() {
   );
 }
 
-export default App;1
+export default App;

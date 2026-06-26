@@ -327,9 +327,6 @@ body {
 .profile-role-tag { font-size: 10px; font-weight: 700; color: var(--color-citizen); text-transform: uppercase; transition: color 0.1s; cursor: pointer; }
 .profile-role-tag:hover { color: var(--color-critical); text-decoration: underline; }
 
-
-/* 👤 INDUSTRIAL CITIZEN IDENTITY CARD VIEW STYLING */
-
 /* 👤 INDUSTRIAL CITIZEN IDENTITY CARD VIEW STYLING */
 
 .profile-details-page { 
@@ -342,7 +339,7 @@ body {
 }
 .profile-card-large { background-color: var(--bg-card); border: 1px solid var(--border-slate); border-top: 4px solid var(--color-citizen); border-radius: 4px; width: 100%; max-width: 550px; padding: 35px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
 .profile-card-header { display: flex; align-items: center; gap: 20px; border-bottom: 1px solid var(--border-slate); padding-bottom: 24px; margin-bottom: 24px; }
-.large-avatar { width: 64px; height: 64px; background-color: var(--color-citizen); color: white; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 24px; }
+.large-avatar { width: 64px; height: 64px; background-color: var(--color-citizen); color: white; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 35px; }
 .badge.verified { background-color: #f1f5f9; color: var(--color-citizen); font-size: 11px; padding: 4px 10px; border-radius: 2px; font-weight: 700; border: 1px solid var(--color-citizen); }
 .profile-card-body { display: flex; flex-direction: column; gap: 18px; }
 .profile-info-row { display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; border-bottom: 1px dotted var(--border-slate); }
@@ -368,12 +365,12 @@ body {
 .portal-container { background-color: #ffffff; width: 90%; max-width: 900px; min-height: 450px; border-radius: 4px; display: flex; gap: 0; border: 1px solid #334155; }
 .left-action-panel { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 40px; background-color: #f8fafc; border-right: 1px solid #cbd5e1; }
 .gmda-branding-hub { display: flex; flex-direction: column; gap: 15px; margin-bottom: 30px;}
-.gmda-branding-hub img { height: 80px; width: auto; object-fit: contain; }
+.gmda-branding-hub img { height: 100px; width: auto; object-fit: contain; }
 .branding-header-row { display: flex; align-items: center; gap: 15px; }
 .system-headline { font-size: 23px; color: #0f172a; font-weight: 700; text-transform: uppercase; letter-spacing: -0.5px; }
 .system-tagline { font-size: 16px; color: #64748b; font-weight: 500; }
 .quick-nav-links { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid #cbd5e1; padding-top: 20px; }
-.nav-anchor-btn { display: block; text-align: left; background: none; border: none; color: #1e3a8a; font-size: 16px; font-weight: 700; text-transform: uppercase; padding: 15px 0; padding-top: 15px; cursor: pointer; }
+.nav-anchor-btn { display: block; text-align: left; background: none; border: none; color: #1e3a8a; font-size: 16px; font-weight: 700; text-transform: uppercase; padding: 15px 0; padding-top:15px; cursor: pointer; }
 .nav-anchor-btn:hover { color: #1d4ed8; text-decoration: underline; }
 .right-auth-panel { flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px; }
 .form-stage-box { width: 100%; max-width: 320px; }
