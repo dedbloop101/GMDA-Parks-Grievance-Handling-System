@@ -1,6 +1,5 @@
-import React from 'react';
 
-function Sidebar({ activeTab, onTabChange, isMobileOpen, onMobileClose, onLogout }) {
+function Sidebar({ activeTab, onTabChange, isMobileOpen, onMobileClose, onLogout, userRole }) {
   return (
     <>
       {isMobileOpen && <div className="sidebar-overlay" onClick={onMobileClose}></div>}
@@ -19,7 +18,7 @@ function Sidebar({ activeTab, onTabChange, isMobileOpen, onMobileClose, onLogout
               onClick={() => onTabChange('Complaint')}
               className={`nav-item ${activeTab === 'Complaint' ? 'active-tab' : ''}`}
             >
-              <span style={{ marginRight: '8px' }}>📝</span> File Park Complaint
+              <span style={{ marginRight: '8px' }}>📝</span> {userRole === 'admin' ? 'City-Wide Map' : 'File Park Complaint'}
             </button>
             <button 
               onClick={() => onTabChange('Before And After Status')}

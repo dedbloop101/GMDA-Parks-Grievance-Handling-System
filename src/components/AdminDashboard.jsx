@@ -1,10 +1,29 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 
 function AdminDashboard() {
   const [adminData, setAdminData] = useState({ kpis: {}, complaints: [] });
   const [isLoading, setIsLoading] = useState(true);
 
-  // Fetch all complaints unconditionally 
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const response = await fetch('http://127.0.0.1:8000/api/complaints', { cache: 'no-store' });
+        if (response.ok && !cancelled) {
+          const data = await response.json();
+          setAdminData({ kpis: data.kpis, complaints: data.complaints });
+        }
+      } catch (error) {
+        console.error("Failed to fetch master data:", error);
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, []);
+
   const fetchMasterData = async () => {
     try {
       const response = await fetch('http://127.0.0.1:8000/api/complaints', { cache: 'no-store' });
@@ -14,14 +33,8 @@ function AdminDashboard() {
       }
     } catch (error) {
       console.error("Failed to fetch master data:", error);
-    } finally {
-      setIsLoading(false);
     }
   };
-
-  useEffect(() => {
-    fetchMasterData();
-  }, []);
 
   const handleStatusChange = async (complaintId, newStatus) => {
     // Optional: Ask the admin for a note to send back to the citizen

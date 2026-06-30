@@ -1,28 +1,34 @@
 import React, { useState, useEffect, useRef } from 'react';
 import * as turf from '@turf/turf';
 
-function MapComponent({ isActive, parkData, searchParkName, searchSectorId }) {
+function MapComponent({ isActive, parkData, searchParkName, searchSectorId, onParkSelect, onCustomPinSelect }) {
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
   
   const [isMeasuring, setIsMeasuring] = useState(false);
+  const [isPinMode, setIsPinMode] = useState(false); // 🔥 NEW: Track Drop Pin Mode
+  
   const [measurePoints, setMeasurePoints] = useState([]);
   const [measureDistance, setMeasureDistance] = useState(0);
   const [measureArea, setMeasureArea] = useState(0); 
 
   const isMeasuringRef = useRef(false);
+  const isPinModeRef = useRef(false); // 🔥 NEW: Ref for event listener
+  
   const measureGroupRef = useRef(null);
   const measureLineRef = useRef(null);
   const measurePolygonRef = useRef(null); 
-  const searchMarkerRef = useRef(null);
+  const searchResultsGroupRef = useRef(null); 
+  const customPinGroupRef = useRef(null); // 🔥 NEW: Layer for custom pins
 
-  // Sync state to ref for event listeners
   useEffect(() => {
     isMeasuringRef.current = isMeasuring;
+    isPinModeRef.current = isPinMode;
     if (mapInstanceRef.current && mapInstanceRef.current._container) {
-      mapInstanceRef.current._container.style.cursor = isMeasuring ? 'crosshair' : '';
+      // Show crosshair if doing any tool action
+      mapInstanceRef.current._container.style.cursor = (isMeasuring || isPinMode) ? 'crosshair' : '';
     }
-  }, [isMeasuring]);
+  }, [isMeasuring, isPinMode]);
 
   const resetMeasurement = () => {
     setMeasurePoints([]);
@@ -59,16 +65,51 @@ function MapComponent({ isActive, parkData, searchParkName, searchSectorId }) {
         }, null, { position: 'topright' }).addTo(mapInstance);
 
         measureGroupRef.current = window.L.layerGroup().addTo(mapInstance);
-        
-        measurePolygonRef.current = window.L.polygon([], { 
-          color: '#1d4ed8', weight: 2, fillColor: '#3b82f6', fillOpacity: 0.2 
-        }).addTo(measureGroupRef.current);
-        
-        measureLineRef.current = window.L.polyline([], { 
-          color: '#1d4ed8', weight: 4, dashArray: '6, 8' 
-        }).addTo(measureGroupRef.current);
+        measurePolygonRef.current = window.L.polygon([], { color: '#1d4ed8', weight: 2, fillColor: '#3b82f6', fillOpacity: 0.2 }).addTo(measureGroupRef.current);
+        measureLineRef.current = window.L.polyline([], { color: '#1d4ed8', weight: 4, dashArray: '6, 8' }).addTo(measureGroupRef.current);
+
+        searchResultsGroupRef.current = window.L.layerGroup().addTo(mapInstance);
+        customPinGroupRef.current = window.L.layerGroup().addTo(mapInstance); // Initialize custom pin group
 
         const handleMapClick = (e) => {
+          // 🔥 NEW: Handle Custom Drop Pin Mode
+          if (isPinModeRef.current) {
+            const { lat, lng } = e.latlng;
+            
+            // Clear any old custom pins
+            customPinGroupRef.current.clearLayers();
+
+            // Create a special blue marker for custom locations
+            const marker = window.L.circleMarker([lat, lng], {
+              radius: 8, color: '#1e40af', fillColor: '#3b82f6', fillOpacity: 0.9, weight: 3
+            }).addTo(customPinGroupRef.current);
+
+            const popupContent = `
+              <div style="text-align: center;">
+                <b style="font-size: 14px; color: #1e40af;">Unregistered Location</b><br>
+                <span style="font-size: 11px; color: #64748b;">Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}</span><br>
+                <button class="select-custom-pin-btn" style="margin-top: 8px; padding: 6px 12px; background: #2563eb; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%;">
+                  Use this Location
+                </button>
+              </div>
+            `;
+
+            marker.bindPopup(popupContent).openPopup();
+
+            marker.on('popupopen', (ev) => {
+              const btn = ev.popup._contentNode.querySelector('.select-custom-pin-btn');
+              if (btn) {
+                btn.onclick = () => {
+                  if (onCustomPinSelect) onCustomPinSelect(lat, lng);
+                  mapInstanceRef.current.closePopup();
+                  setIsPinMode(false); // Turn off pin mode after they confirm
+                };
+              }
+            });
+            return; // Don't trigger measurement logic
+          }
+
+          // Existing Measurement Logic
           if (!isMeasuringRef.current) return;
 
           setMeasurePoints(prev => {
@@ -80,29 +121,21 @@ function MapComponent({ isActive, parkData, searchParkName, searchSectorId }) {
             }).addTo(measureGroupRef.current);
 
             measureLineRef.current.setLatLngs(updated);
-            
-            if (updated.length >= 3) {
-              measurePolygonRef.current.setLatLngs(updated);
-            } else {
-              measurePolygonRef.current.setLatLngs([]);
-            }
+            if (updated.length >= 3) measurePolygonRef.current.setLatLngs(updated);
+            else measurePolygonRef.current.setLatLngs([]);
 
             if (updated.length > 1) {
               const turfCoords = updated.map(coord => [coord[1], coord[0]]);
               const line = turf.lineString(turfCoords);
-              const distanceInMeters = turf.length(line, { units: 'meters' });
-              setMeasureDistance(distanceInMeters);
+              setMeasureDistance(turf.length(line, { units: 'meters' }));
 
               if (updated.length >= 3) {
                 const closedCoords = [...turfCoords, turfCoords[0]]; 
-                const polygon = turf.polygon([closedCoords]);
-                const areaInSqMeters = turf.area(polygon);
-                setMeasureArea(areaInSqMeters);
+                setMeasureArea(turf.area(turf.polygon([closedCoords])));
               } else {
                 setMeasureArea(0);
               }
             }
-
             return updated;
           });
         };
@@ -123,56 +156,76 @@ function MapComponent({ isActive, parkData, searchParkName, searchSectorId }) {
     }
   }, [isActive]);
 
-  // SPATIAL SEARCH AND AUTO-PAN ENGINE
+  // SPATIAL SEARCH ENGINE (Data-Agnostic Normalization)
   useEffect(() => {
     if (!mapInstanceRef.current || !parkData) return;
 
-    // Cleans up the marker automatically if form inputs are cleared
-    if (!searchParkName && !searchSectorId) {
-      if (searchMarkerRef.current) {
-        searchMarkerRef.current.remove();
-        searchMarkerRef.current = null;
-      }
-      return;
+    if (searchResultsGroupRef.current) {
+      searchResultsGroupRef.current.clearLayers();
     }
 
-    const searchTerm = searchParkName.toLowerCase();
-    const sectorTerm = searchSectorId.toLowerCase();
+    const searchTerm = (searchParkName || '').toLowerCase().trim();
+    const sectorTerm = (searchSectorId || '').toLowerCase().trim();
 
-    const foundPark = parkData.features.find(park => {
-      const name = park.properties.name ? park.properties.name.toLowerCase() : "";
-      const address = park.properties["addr:suburb"] ? park.properties["addr:suburb"].toLowerCase() : "";
-      const fullString = `${name} ${address}`;
+    const normalize = (str) => str.toString().toLowerCase().replace(/[^a-z0-9]/g, '');
+    const searchAreaNorm = normalize(sectorTerm);
 
-      if (!searchTerm && sectorTerm) {
-          return fullString.includes(sectorTerm);
-      }
-      
-      return name.includes(searchTerm) && 
-             (sectorTerm === '' || fullString.includes(sectorTerm));
+    if (searchTerm.length < 2 && searchAreaNorm.length === 0) return;
+
+    const matchedParks = parkData.features.filter(park => {
+      const props = park.properties || {};
+      const nameNorm = normalize(props.name || '');
+      const allPropsStr = Object.values(props).join(" ").toLowerCase();
+      const areaNorm = normalize(allPropsStr);
+
+      const matchesArea = searchAreaNorm.length > 0 ? areaNorm.includes(searchAreaNorm) : true;
+      const matchesName = searchTerm.length > 0 ? nameNorm.includes(normalize(searchTerm)) : true;
+
+      return matchesArea && matchesName;
     });
 
-    if (foundPark) {
-      const centerPoint = turf.center(foundPark);
-      const [lng, lat] = centerPoint.geometry.coordinates;
+    if (matchedParks.length > 0) {
+      matchedParks.forEach(park => {
+        const centerPoint = turf.center(park);
+        const [lng, lat] = centerPoint.geometry.coordinates;
+        const parkNameDisplay = park.properties.name || "Unnamed Park Area";
 
-      mapInstanceRef.current.flyTo([lat, lng], 16, { animate: true, duration: 1.5 });
+        const marker = window.L.circleMarker([lat, lng], {
+          radius: 8, color: '#dc2626', fillColor: '#ef4444', fillOpacity: 0.8, weight: 3
+        });
 
-      if (searchMarkerRef.current) {
-        searchMarkerRef.current.remove();
-      }
+        const popupContent = `
+          <div style="text-align: center;">
+            <b style="font-size: 14px;">${parkNameDisplay}</b><br>
+            <button class="select-park-btn" data-parkname="${parkNameDisplay}" style="margin-top: 8px; padding: 6px 12px; background: #15803d; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%;">
+              Select this Park
+            </button>
+          </div>
+        `;
 
-      const parkNameDisplay = foundPark.properties.name || "Unnamed Park Area";
+        marker.bindPopup(popupContent);
+        marker.on('popupopen', (e) => {
+          const btn = e.popup._contentNode.querySelector('.select-park-btn');
+          if (btn) {
+            btn.onclick = () => {
+              if (onParkSelect) onParkSelect(btn.getAttribute('data-parkname'));
+              mapInstanceRef.current.closePopup();
+            };
+          }
+        });
 
-      searchMarkerRef.current = window.L.circleMarker([lat, lng], {
-        radius: 8, color: '#dc2626', fillColor: '#ef4444', fillOpacity: 0.8, weight: 3
-      }).addTo(mapInstanceRef.current)
-        .bindPopup(`<b>${parkNameDisplay}</b><br>Coordinates: ${lat.toFixed(4)}, ${lng.toFixed(4)}`)
-        .openPopup();
+        marker.addTo(searchResultsGroupRef.current);
+      });
+
+      try {
+        const featureCollection = turf.featureCollection(matchedParks);
+        const bbox = turf.bbox(featureCollection); 
+        const leafletBounds = [[bbox[1], bbox[0]], [bbox[3], bbox[2]]]; 
+        mapInstanceRef.current.flyToBounds(leafletBounds, { padding: [40, 40], maxZoom: 15, duration: 1.2 });
+      } catch (e) { console.error("Bounding box error", e); }
     }
-  }, [searchParkName, searchSectorId, parkData]);
+  }, [searchParkName, searchSectorId, parkData, onParkSelect]);
 
-  // Invalidate map size to prevent gray tiles on layout shifts
   useEffect(() => {
     if (mapInstanceRef.current) {
       setTimeout(() => mapInstanceRef.current.invalidateSize(), 400); 
@@ -183,13 +236,14 @@ function MapComponent({ isActive, parkData, searchParkName, searchSectorId }) {
     <>
       <div id="complaint-map" ref={mapRef}></div>
       
-      {/* Measurement Tool Controls */}
       <div style={{ position: 'absolute', top: '60px', right: '10px', zIndex: 1000, display: 'flex', flexDirection: 'column', gap: '5px' }}>
         <button
           type="button"
+          title="Measurement Tool"
           onClick={(e) => {
             e.preventDefault();
             setIsMeasuring(!isMeasuring);
+            setIsPinMode(false); // Turn off pin mode if switching to measure
             if (isMeasuring) resetMeasurement();
           }}
           style={{
@@ -201,9 +255,34 @@ function MapComponent({ isActive, parkData, searchParkName, searchSectorId }) {
         >
           {isMeasuring ? '🛑' : '📐'}
         </button>
+
+        {/* 🔥 NEW: Custom Drop Pin Button */}
+        <button
+          type="button"
+          title="Drop Custom Location Pin"
+          onClick={(e) => {
+            e.preventDefault();
+            setIsPinMode(!isPinMode);
+            setIsMeasuring(false); // Turn off measuring if switching to pin drop
+          }}
+          style={{
+            width: '34px', height: '33px', backgroundColor: '#ffffff',
+            border: '2px solid rgba(0,0,0,0.2)', borderRadius: '4px',
+            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: '18px', padding: 0, color: isPinMode ? '#2563eb' : '#333',
+          }}
+        >
+          📍
+        </button>
       </div>
 
-      {/* Measurement Output HUD */}
+      {isPinMode && (
+        <div style={{ position: 'absolute', bottom: '20px', left: '50%', transform: 'translateX(-50%)', zIndex: 1000, backgroundColor: '#2563eb', color: 'white', padding: '8px 16px', borderRadius: '20px', fontSize: '13px', fontWeight: 'bold', boxShadow: '0 4px 12px rgba(0,0,0,0.3)', pointerEvents: 'none' }}>
+          Tap anywhere on the map to drop a pin
+        </div>
+      )}
+
+      {/* Measurement Tool UI ... */}
       {isMeasuring && (
         <div style={{
           position: 'absolute', top: '100px', right: '10px', zIndex: 1000,

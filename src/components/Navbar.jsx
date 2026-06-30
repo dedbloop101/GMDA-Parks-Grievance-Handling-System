@@ -1,18 +1,6 @@
-import React from 'react';
-import gmdaLogo from '../assets/gmda-logo.png'; 
+import gmdaLogo from '../assets/gmda-logo.png';
 
-// FIXED: Destructured 'theme' and 'toggleTheme' from incoming props
 function Navbar({ citizenName, theme, toggleTheme, onMenuToggle, onProfileClick, onLogout }) {
-  
-  const getInitials = (name) => {
-    if (!name) return "CP";
-    const parts = name.split(" ");
-    if (parts.length > 1) {
-      return (parts[0][0] + parts[1][0]).toUpperCase();
-    }
-    return parts[0][0].toUpperCase();
-  };
-
   return (
     <header className="navbar">
       <div className="logo-section">

@@ -3,6 +3,9 @@ from flask_cors import CORS
 import sqlite3
 import bcrypt
 import os
+import random
+import smtplib
+from email.mime.text import MIMEText # 🔥 NEW: Email crafting library
 
 app = Flask(__name__)
 CORS(app) 
@@ -10,6 +13,8 @@ app.secret_key = os.urandom(24)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'gmda_portal.db') 
+
+OTP_STORE = {}
 
 def get_db_connection():
     conn = sqlite3.connect(DB_PATH)
@@ -23,13 +28,13 @@ def init_db():
         cursor.execute('''CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT, 
             full_name TEXT NOT NULL, 
-            mobile_number TEXT UNIQUE NOT NULL, 
-            password BLOB NOT NULL, 
+            mobile_number TEXT UNIQUE, 
+            email TEXT UNIQUE,
+            password BLOB, 
             role TEXT DEFAULT 'citizen'
         )''')
-    # 🔥 Inject a master admin account if it doesn't exist (Properly Hashed)
-        admin_pass = bcrypt.hashpw('admin1234'.encode('utf-8'), bcrypt.gensalt())
         
+        admin_pass = bcrypt.hashpw('admin1234'.encode('utf-8'), bcrypt.gensalt())
         cursor.execute('''
         INSERT OR IGNORE INTO users (full_name, mobile_number, password, role)
         VALUES (?, ?, ?, ?)
@@ -53,6 +58,94 @@ def init_db():
 
 init_db()
 
+# ==========================================
+# 🔥 LIVE SMTP EMAIL ENGINE
+# ==========================================
+@app.route('/api/send-otp', methods=['POST'])
+def send_otp():
+    data = request.json
+    email = data.get('email')
+    
+    if not email:
+        return jsonify({'status': 'error', 'message': 'Email is required.'}), 400
+        
+    otp = str(random.randint(100000, 999999))
+    OTP_STORE[email] = otp
+    
+    SENDER_EMAIL = os.environ.get('GMDA_SMTP_EMAIL', 'parks.gmda@gmail.com')
+    SENDER_PASSWORD = os.environ.get('GMDA_SMTP_PASSWORD', 'uzeywjzznratnlzf')
+
+    if not SENDER_PASSWORD:
+        return jsonify({'status': 'error', 'message': 'Email service is not configured on the server.'}), 503
+    
+    try:
+        # Build the payload
+        msg = MIMEText(f"Hello,\n\nYour secure GMDA Portal verification code is: {otp}\n\nDo not share this code with anyone. It will expire shortly.\n\n- System Admin")
+        msg['Subject'] = 'GMDA Portal - Security OTP'
+        msg['From'] = SENDER_EMAIL
+        msg['To'] = email
+
+        # Establish a secure SSL connection to Google's servers
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+            server.login(SENDER_EMAIL, SENDER_PASSWORD)
+            server.send_message(msg)
+            
+        print(f"✅ SUCCESS: Live OTP dispatched to {email}")
+        return jsonify({'status': 'success', 'message': 'OTP sent successfully!'})
+        
+    except Exception as e:
+        print(f"❌ CRITICAL FAILURE sending email to {email}: {e}")
+        return jsonify({'status': 'error', 'message': 'Failed to send OTP via email. Check backend terminal.'}), 500
+
+@app.route('/api/verify-login-otp', methods=['POST'])
+def verify_login_otp():
+    data = request.json
+    email = data.get('email')
+    otp = data.get('otp')
+    
+    if OTP_STORE.get(email) != otp:
+        return jsonify({'status': 'error', 'message': 'Invalid or expired OTP.'}), 401
+        
+    with get_db_connection() as conn:
+        user = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+        
+    if user:
+        del OTP_STORE[email] 
+        return jsonify({
+            'status': 'success', 
+            'user': {'id': user['id'], 'fullName': user['full_name'], 'mobile': user['mobile_number'], 'email': user['email'], 'role': user['role']}
+        }), 200
+    else:
+        return jsonify({'status': 'error', 'message': 'Account not found. Please register first.'}), 404
+
+@app.route('/api/verify-register-otp', methods=['POST'])
+def verify_register_otp():
+    data = request.json
+    full_name = data.get('fullName')
+    email = data.get('email')
+    otp = data.get('otp')
+    
+    if OTP_STORE.get(email) != otp:
+        return jsonify({'status': 'error', 'message': 'Invalid or expired OTP.'}), 401
+        
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO users (full_name, email) VALUES (?, ?)", (full_name, email))
+            conn.commit()
+            new_user_id = cursor.lastrowid
+            
+        del OTP_STORE[email]
+        return jsonify({
+            'status': 'success', 
+            'user': {'id': new_user_id, 'fullName': full_name, 'mobile': None, 'email': email, 'role': 'citizen'}
+        }), 201
+    except sqlite3.IntegrityError:
+        return jsonify({'status': 'error', 'message': 'Email is already registered!'}), 409
+
+# ==========================================
+# STANDARD MOBILE ROUTES
+# ==========================================
 @app.route('/api/register', methods=['POST'])
 def api_register():
     data = request.json
@@ -65,31 +158,18 @@ def api_register():
 
     hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
 
-    conn = get_db_connection()
     try:
-        cursor = conn.cursor()
-        cursor.execute("INSERT INTO users (full_name, mobile_number, password) VALUES (?, ?, ?)",
-                       (full_name, mobile_number, hashed_password))
-        conn.commit()
-        
-        # Grab the database ID of the newly created user
-        new_user_id = cursor.lastrowid
-        
-        return jsonify({
-            'status': 'success', 
-            'message': 'Account created successfully.',
-            'user': {
-                'id': new_user_id,
-                'fullName': full_name,
-                'mobile': mobile_number
-            }
-        }), 201
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO users (full_name, mobile_number, password) VALUES (?, ?, ?)",
+                           (full_name, mobile_number, hashed_password))
+            conn.commit()
+            return jsonify({
+                'status': 'success', 
+                'user': {'id': cursor.lastrowid, 'fullName': full_name, 'mobile': mobile_number, 'email': None, 'role': 'citizen'}
+            }), 201
     except sqlite3.IntegrityError:
         return jsonify({'status': 'error', 'message': 'Mobile number is already registered!'}), 409
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
-    finally:
-        conn.close() 
 
 @app.route('/api/login', methods=['POST'])
 def api_login():
@@ -97,15 +177,10 @@ def api_login():
     mobile_number = data.get('mobile')
     password = data.get('password')
 
-    if not mobile_number or not password:
-        return jsonify({'status': 'error', 'message': 'Mobile number and password are required.'}), 400
-
-    conn = get_db_connection()
-    try:
+    with get_db_connection() as conn:
         user = conn.execute("SELECT * FROM users WHERE mobile_number = ?", (mobile_number,)).fetchone()
         
-        # 🔥 FIX: Safely parse the password type to prevent bcrypt crashes
-        if user:
+        if user and user['password']:
             stored_password = user['password']
             if isinstance(stored_password, str):
                 stored_password = stored_password.encode('utf-8')
@@ -113,17 +188,10 @@ def api_login():
             if bcrypt.checkpw(password.encode('utf-8'), stored_password):
                 return jsonify({
                     'status': 'success', 
-                    'message': 'Login successful.',
-                    'user': {'id': user['id'], 'fullName': user['full_name'], 'mobile': user['mobile_number'], 'role': user['role']}
+                    'user': {'id': user['id'], 'fullName': user['full_name'], 'mobile': user['mobile_number'], 'email': user['email'], 'role': user['role']}
                 }), 200
-            else:
-                return jsonify({'status': 'error', 'message': 'Invalid mobile number or password.'}), 401
-        else:
-            return jsonify({'status': 'error', 'message': 'Invalid mobile number or password.'}), 401
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
-    finally:
-        conn.close()
+            
+    return jsonify({'status': 'error', 'message': 'Invalid mobile number or password.'}), 401
 
 @app.route('/api/change-password', methods=['POST'])
 def api_change_password():
@@ -132,15 +200,9 @@ def api_change_password():
     old_password = data.get('oldPassword')
     new_password = data.get('newPassword')
 
-    if not mobile_number or not old_password or not new_password:
-        return jsonify({'status': 'error', 'message': 'All fields are required.'}), 400
-
-    conn = get_db_connection()
-    try:
+    with get_db_connection() as conn:
         user = conn.execute("SELECT * FROM users WHERE mobile_number = ?", (mobile_number,)).fetchone()
-
-        # 🔥 FIX: Applied the same safe parsing here
-        if user:
+        if user and user['password']:
             stored_password = user['password']
             if isinstance(stored_password, str):
                 stored_password = stored_password.encode('utf-8')
@@ -150,14 +212,8 @@ def api_change_password():
                 conn.execute("UPDATE users SET password = ? WHERE mobile_number = ?", (new_hashed, mobile_number))
                 conn.commit()
                 return jsonify({'status': 'success', 'message': 'Security credentials updated successfully.'}), 200
-            else:
-                return jsonify({'status': 'error', 'message': 'Incorrect current password.'}), 401
-        else:
-             return jsonify({'status': 'error', 'message': 'User not found.'}), 404
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
-    finally:
-        conn.close()
+                
+    return jsonify({'status': 'error', 'message': 'Verification failed.'}), 401
 
 @app.route('/api/complaints', methods=['GET', 'POST'])
 def api_complaints():
@@ -172,9 +228,8 @@ def api_complaints():
             sub_category = data.get('subCategory', '')
             remarks = data.get('remarks', '')
 
-            # Updated basic logic engine to auto-assign priority based on the hazard level
             priority = 'Medium'
-            if category in ['Streetlights Not Working', 'Play Area Issues', 'Waterlogging', 'Stray Animal Menace']:
+            if category in ['Streetlights Not Working', 'Play Area Issues', 'Waterlogging', 'Stray Animal Danger']:
                 priority = 'High'
             elif category in ['Damaged Benches', 'Broken Gym Equipment', 'Garbage Accumulation', 'Walking Track Issues', 'Public Amenities']:
                 priority = 'Medium'
@@ -188,24 +243,19 @@ def api_complaints():
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             """, (citizen_name, park_name, sector_id, category, sub_category, remarks, priority))
             conn.commit()
-            return jsonify({'status': 'success', 'message': 'Grievance officially logged in the system.'}), 201
+            return jsonify({'status': 'success'}), 201
 
         elif request.method == 'GET':
             citizen_name = request.args.get('citizenName')
 
             if citizen_name:
-                # Fetch only this specific user's logs and KPIs
                 db_complaints = conn.execute("SELECT * FROM complaints WHERE citizen_name = ? ORDER BY timestamp ASC", (citizen_name,)).fetchall()
                 resolved_count = conn.execute("SELECT COUNT(*) FROM complaints WHERE status = 'Resolved' AND citizen_name = ?", (citizen_name,)).fetchone()[0]
                 active_count = conn.execute("SELECT COUNT(*) FROM complaints WHERE status != 'Resolved' AND citizen_name = ?", (citizen_name,)).fetchone()[0]
             else:
-                # Admin view: Fetch EVERYTHING
                 db_complaints = conn.execute("SELECT * FROM complaints ORDER BY timestamp DESC").fetchall()
                 resolved_count = conn.execute("SELECT COUNT(*) FROM complaints WHERE status = 'Resolved'").fetchone()[0]
                 active_count = conn.execute("SELECT COUNT(*) FROM complaints WHERE status != 'Resolved'").fetchone()[0]
-            
-            # Active staff calculation (can remain dummy math for now)
-            active_staff = 4 + (active_count // 2)
             
             complaints_list = []
             for row in db_complaints:
@@ -221,37 +271,21 @@ def api_complaints():
 
             return jsonify({
                 'status': 'success',
-                'kpis': {
-                    'resolvedIssues': resolved_count,
-                    'pendingGrievances': active_count,
-                    'activeFieldStaff': active_staff
-                },
+                'kpis': {'resolvedIssues': resolved_count, 'pendingGrievances': active_count, 'activeFieldStaff': 4 + (active_count // 2)},
                 'complaints': complaints_list
             }), 200
             
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
     finally:
         conn.close()
         
 @app.route('/api/complaints/update', methods=['POST'])
 def update_complaint_status():
     data = request.json
-    complaint_id = data.get('id')
-    new_status = data.get('status')
-    admin_notes = data.get('adminNotes', '') # We can pass notes back to the citizen
-
-    # Safe integer conversion (handles "001" or "GMDA-001")
-    raw_id = int(str(complaint_id).replace('GMDA-', ''))
-
+    raw_id = int(str(data.get('id')).replace('GMDA-', ''))
     with get_db_connection() as conn:
-        conn.execute(
-            "UPDATE complaints SET status = ?, remarks = ? WHERE id = ?",
-            (new_status, admin_notes, raw_id)
-        )
+        conn.execute("UPDATE complaints SET status = ?, remarks = ? WHERE id = ?", (data.get('status'), data.get('adminNotes', ''), raw_id))
         conn.commit()
-
-    return jsonify({'status': 'success', 'message': f'Complaint {complaint_id} updated to {new_status}'}), 200
+    return jsonify({'status': 'success'}), 200
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True, port=8000)
