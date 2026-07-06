@@ -5,7 +5,9 @@ import bcrypt
 import os
 import random
 import smtplib
-from email.mime.text import MIMEText # 🔥 NEW: Email crafting library
+from email.mime.text import MIMEText 
+from werkzeug.utils import secure_filename
+from flask import send_from_directory
 
 app = Flask(__name__)
 CORS(app) 
@@ -50,17 +52,90 @@ def init_db():
             remarks TEXT,
             status TEXT DEFAULT 'Unresolved',
             priority TEXT DEFAULT 'Medium',
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            before_image TEXT,
+            after_image TEXT
         )''')
+        
+        # Safe migration: Add the columns to existing databases if they are missing
+        try:
+            cursor.execute("ALTER TABLE complaints ADD COLUMN before_image TEXT")
+        except sqlite3.OperationalError:
+            pass # Column already exists
+
+        try:
+            cursor.execute("ALTER TABLE complaints ADD COLUMN after_image TEXT")
+        except sqlite3.OperationalError:
+            pass # Column already exists
+
         conn.commit()
     finally:
         conn.close()
 
 init_db()
 
-# ==========================================
-# 🔥 LIVE SMTP EMAIL ENGINE
-# ==========================================
+# Configure the upload folder
+UPLOAD_FOLDER = os.path.join(os.getcwd(), 'static', 'uploads')
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+@app.route('/static/uploads/<filename>')
+def serve_uploaded_image(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+@app.route('/api/upload', methods=['POST'])
+def upload_image():
+    if 'image' not in request.files:
+        return jsonify({"message": "No image file provided"}), 400
+    
+    file = request.files['image']
+    
+    if file.filename == '':
+        return jsonify({"message": "Empty file provided"}), 400
+        
+    if file:
+        filename = secure_filename(file.filename)
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(filepath)
+        
+        image_url = f"http://127.0.0.1:8000/static/uploads/{filename}"
+        return jsonify({"message": "Upload successful", "imageUrl": image_url}), 200
+    
+# 🔥 MERGED ADMIN ROUTE (No more duplicates!)
+@app.route('/api/complaints/update', methods=['POST'])
+def update_complaint_status():
+    data = request.json
+    
+    # Safely strip out 'GMDA-' if it was sent by the frontend
+    raw_id = str(data.get('id')).replace('GMDA-', '')
+    
+    new_status = data.get('status')
+    admin_notes = data.get('adminNotes')
+    after_image_url = data.get('afterImageUrl') 
+
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                UPDATE complaints 
+                SET status = ?, remarks = ?
+                WHERE id = ?
+            ''', (new_status, admin_notes, raw_id))
+            
+            if after_image_url:
+                cursor.execute('''
+                    UPDATE complaints 
+                    SET after_image = ?
+                    WHERE id = ?
+                ''', (after_image_url, raw_id))
+                
+            conn.commit()
+        return jsonify({"message": "Status updated successfully"}), 200
+    except Exception as e:
+        return jsonify({"message": str(e)}), 500
+
+# LIVE SMTP EMAIL ENGINE
 @app.route('/api/send-otp', methods=['POST'])
 def send_otp():
     data = request.json
@@ -79,13 +154,11 @@ def send_otp():
         return jsonify({'status': 'error', 'message': 'Email service is not configured on the server.'}), 503
     
     try:
-        # Build the payload
         msg = MIMEText(f"Hello,\n\nYour secure GMDA Portal verification code is: {otp}\n\nDo not share this code with anyone. It will expire shortly.\n\n- System Admin")
         msg['Subject'] = 'GMDA Portal - Security OTP'
         msg['From'] = SENDER_EMAIL
         msg['To'] = email
 
-        # Establish a secure SSL connection to Google's servers
         with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
             server.login(SENDER_EMAIL, SENDER_PASSWORD)
             server.send_message(msg)
@@ -143,9 +216,6 @@ def verify_register_otp():
     except sqlite3.IntegrityError:
         return jsonify({'status': 'error', 'message': 'Email is already registered!'}), 409
 
-# ==========================================
-# STANDARD MOBILE ROUTES
-# ==========================================
 @app.route('/api/register', methods=['POST'])
 def api_register():
     data = request.json
@@ -227,6 +297,7 @@ def api_complaints():
             category = data.get('category')
             sub_category = data.get('subCategory', '')
             remarks = data.get('remarks', '')
+            before_image = data.get('beforeImageUrl') # 🔥 CAUGHT THE IMAGE!
 
             priority = 'Medium'
             if category in ['Streetlights Not Working', 'Play Area Issues', 'Waterlogging', 'Stray Animal Danger']:
@@ -239,9 +310,9 @@ def api_complaints():
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT INTO complaints 
-                (citizen_name, park_name, sector_id, category, sub_category, remarks, priority) 
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (citizen_name, park_name, sector_id, category, sub_category, remarks, priority))
+                (citizen_name, park_name, sector_id, category, sub_category, remarks, priority, before_image) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (citizen_name, park_name, sector_id, category, sub_category, remarks, priority, before_image))
             conn.commit()
             return jsonify({'status': 'success'}), 201
 
@@ -253,12 +324,15 @@ def api_complaints():
                 resolved_count = conn.execute("SELECT COUNT(*) FROM complaints WHERE status = 'Resolved' AND citizen_name = ?", (citizen_name,)).fetchone()[0]
                 active_count = conn.execute("SELECT COUNT(*) FROM complaints WHERE status != 'Resolved' AND citizen_name = ?", (citizen_name,)).fetchone()[0]
             else:
-                db_complaints = conn.execute("SELECT * FROM complaints ORDER BY timestamp DESC").fetchall()
+                db_complaints = conn.execute("SELECT * FROM complaints ORDER BY timestamp ASC").fetchall()
                 resolved_count = conn.execute("SELECT COUNT(*) FROM complaints WHERE status = 'Resolved'").fetchone()[0]
                 active_count = conn.execute("SELECT COUNT(*) FROM complaints WHERE status != 'Resolved'").fetchone()[0]
             
             complaints_list = []
             for row in db_complaints:
+                # Safely grab the images if they exist in this row
+                row_keys = row.keys()
+                
                 complaints_list.append({
                     'id': f"{row['id']:03d}",
                     'parkName': row['park_name'],
@@ -266,7 +340,9 @@ def api_complaints():
                     'issue': f"{row['category']}: {row['sub_category']}" if row['sub_category'] else row['category'],
                     'priority': row['priority'],
                     'status': row['status'],
-                    'remarks': row['remarks']
+                    'remarks': row['remarks'],
+                    'beforeImage': row['before_image'] if 'before_image' in row_keys else None,
+                    'afterImage': row['after_image'] if 'after_image' in row_keys else None
                 })
 
             return jsonify({
@@ -277,15 +353,6 @@ def api_complaints():
             
     finally:
         conn.close()
-        
-@app.route('/api/complaints/update', methods=['POST'])
-def update_complaint_status():
-    data = request.json
-    raw_id = int(str(data.get('id')).replace('GMDA-', ''))
-    with get_db_connection() as conn:
-        conn.execute("UPDATE complaints SET status = ?, remarks = ? WHERE id = ?", (data.get('status'), data.get('adminNotes', ''), raw_id))
-        conn.commit()
-    return jsonify({'status': 'success'}), 200
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True, port=8000)

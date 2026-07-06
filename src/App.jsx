@@ -4,19 +4,21 @@ import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
 import DashboardOverview from './components/DashboardOverview';
 import MapComponent from './components/MapComponent';
-import AdminMap from './components/AdminMap'; // 🔥 NEW: Imported the Admin Map
+import AdminMap from './components/AdminMap';
 import gmdaLogo from './assets/gmda-logo.png'; 
 import AdminDashboard from './components/AdminDashboard';
+import BeforeAfterGallery from './components/BeforeAfterGallery';
 
 function App() {
   
-  // 🔥 SESSION PERSISTENCE
-  const [isLoggedIn, setIsLoggedIn] = useState(() => localStorage.getItem('isLoggedIn') === 'true');
-  const [citizenName, setCitizenName] = useState(() => localStorage.getItem('citizenName') || 'Chirag Panwar'); 
-  const [mobileInput, setMobileInput] = useState(() => localStorage.getItem('userMobile') || '');
-  const [userEmail, setUserEmail] = useState(() => localStorage.getItem('userEmail') || '');
-  const [userRole, setUserRole] = useState(() => localStorage.getItem('userRole') || 'citizen');
+  // SESSION PERSISTENCE
+  const [isLoggedIn, setIsLoggedIn] = useState(() => sessionStorage.getItem('isLoggedIn') === 'true');
+  const [citizenName, setCitizenName] = useState(() => sessionStorage.getItem('citizenName') || 'Chirag Panwar'); 
+  const [mobileInput, setMobileInput] = useState(() => sessionStorage.getItem('userMobile') || '');
+  const [userEmail, setUserEmail] = useState(() => sessionStorage.getItem('userEmail') || '');
+  const [userRole, setUserRole] = useState(() => sessionStorage.getItem('userRole') || 'citizen');
 
+  // AUTHENTICATION STATES
   const [authMode, setAuthMode] = useState('login'); 
   const [authMethod, setAuthMethod] = useState('mobile'); 
   const [activeTab, setActiveTab] = useState('overview');
@@ -35,16 +37,19 @@ function App() {
 
   const [theme, setTheme] = useState('light');
 
+  // Password Change States
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
+  // Complaint Form States
   const [selectedCategory, setSelectedCategory] = useState('Broken Gym Equipment');
   const [subCategory, setSubCategory] = useState(''); 
   const [remarks, setRemarks] = useState(''); 
   const [parkNameInput, setParkNameInput] = useState('');
   const [sectorIdInput, setSectorIdInput] = useState('');
 
+  // Floating Form States
   const [isFormFloating, setIsFormFloating] = useState(true);
   const [formPos, setFormPos] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
@@ -53,7 +58,10 @@ function App() {
   const [parkData, setParkData] = useState(null);
   const [dashboardData, setDashboardData] = useState(null);
 
-  // 🔥 MASTER LOGOUT FUNCTION
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
+
+  // MASTER LOGOUT FUNCTION
   const handleSecureLogout = () => {
     setIsLoggedIn(false);
     setMobileInput('');
@@ -65,11 +73,11 @@ function App() {
     setUserRole('citizen');
     setActiveTab('overview');
     
-    localStorage.removeItem('isLoggedIn');
-    localStorage.removeItem('citizenName');
-    localStorage.removeItem('userMobile');
-    localStorage.removeItem('userEmail');
-    localStorage.removeItem('userRole'); 
+    sessionStorage.removeItem('isLoggedIn');
+    sessionStorage.removeItem('citizenName');
+    sessionStorage.removeItem('userMobile');
+    sessionStorage.removeItem('userEmail');
+    sessionStorage.removeItem('userRole'); 
   };
 
   const toggleTheme = () => setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
@@ -91,7 +99,6 @@ function App() {
   const strength = checkPasswordStrength(regPassword);
   const newPassStrength = checkPasswordStrength(newPassword);
 
-  // Initial GeoJSON Load
   useEffect(() => {
     fetch('/gurugram_parks.geojson')
       .then(res => res.json())
@@ -101,10 +108,9 @@ function App() {
 
   const fetchLiveDashboardData = async () => {
     try {
-      // 🔥 NEW: Admins fetch the whole city's data, Citizens fetch only their own
       const endpoint = userRole === 'admin' 
-        ? 'http://127.0.0.1:8000/api/complaints' 
-        : `http://127.0.0.1:8000/api/complaints?citizenName=${encodeURIComponent(citizenName)}`;
+        ? 'http://192.168.0.138:8000/api/complaints' 
+        : `http://192.168.0.138:8000/api/complaints?citizenName=${encodeURIComponent(citizenName)}`;
 
       const response = await fetch(endpoint, { cache: 'no-store' });
       if (response.ok) {
@@ -117,12 +123,11 @@ function App() {
   };
 
   useEffect(() => {
-    if (isLoggedIn && activeTab === 'overview') {
+    if (isLoggedIn && (activeTab === 'overview' || activeTab === 'Before And After Status')) {
       fetchLiveDashboardData();
     }
   }, [isLoggedIn, activeTab]);
 
-  // Make sure we fetch when switching to the Complaint tab so the Admin map is always live
   useEffect(() => {
     if (isLoggedIn && activeTab === 'Complaint' && userRole === 'admin') {
       fetchLiveDashboardData();
@@ -147,9 +152,6 @@ function App() {
     e.currentTarget.releasePointerCapture(e.pointerId);
   };
   
-  // ==========================================
-  // 🔥 AUTHENTICATION HANDLERS
-  // ==========================================
   const executeLogin = (user) => {
     setCitizenName(user.fullName); 
     setMobileInput(user.mobile || '');
@@ -158,11 +160,11 @@ function App() {
     setUserRole(user.role);
     setActiveTab('overview');
 
-    localStorage.setItem('isLoggedIn', 'true');
-    localStorage.setItem('citizenName', user.fullName);
-    localStorage.setItem('userMobile', user.mobile || '');
-    localStorage.setItem('userEmail', user.email || '');
-    localStorage.setItem('userRole', user.role);
+    sessionStorage.setItem('isLoggedIn', 'true');
+    sessionStorage.setItem('citizenName', user.fullName);
+    sessionStorage.setItem('userMobile', user.mobile || '');
+    sessionStorage.setItem('userEmail', user.email || '');
+    sessionStorage.setItem('userRole', user.role);
   };
 
   const handleLoginSubmit = async (e) => {
@@ -175,7 +177,7 @@ function App() {
     }
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/login', {
+      const response = await fetch('http://192.168.0.138:8000/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mobile: mobileInput, password: password })
@@ -200,7 +202,7 @@ function App() {
     if (/\d{4}/.test(regPassword)) return alert("Registration Failed: Password cannot contain more than 3 consecutive numbers.");
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/register', {
+      const response = await fetch('http://192.168.0.138:8000/api/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fullName: regName, mobile: regMobile, password: regPassword })
@@ -221,7 +223,7 @@ function App() {
   const requestOtp = async () => {
     if (!emailInput.includes('@')) return alert("Enter a valid email address.");
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/send-otp', {
+      const response = await fetch('http://192.168.0.138:8000/api/send-otp', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: emailInput })
       });
@@ -238,7 +240,7 @@ function App() {
   const submitOtpLogin = async (e) => {
     e.preventDefault();
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/verify-login-otp', {
+      const response = await fetch('http://192.168.0.138:8000/api/verify-login-otp', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: emailInput, otp: otpInput })
       });
@@ -258,7 +260,7 @@ function App() {
     if (!regName) return alert("Please enter your Full Name.");
     
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/verify-register-otp', {
+      const response = await fetch('http://192.168.0.138:8000/api/verify-register-otp', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fullName: regName, email: emailInput, otp: otpInput })
       });
@@ -273,10 +275,30 @@ function App() {
     }
   };
 
-  const handleComplaintSubmit = async (e) => {
+ const handleComplaintSubmit = async (e) => {
     e.preventDefault();
+    setIsUploading(true);
+    let finalImageUrl = null;
+
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/complaints', {
+      if (selectedImage) {
+        const formData = new FormData();
+        formData.append('image', selectedImage);
+
+        const uploadRes = await fetch('http://192.168.0.138:8000/api/upload', {
+          method: 'POST',
+          body: formData 
+        });
+        
+        const uploadData = await uploadRes.json();
+        if (uploadRes.ok) {
+          finalImageUrl = uploadData.imageUrl;
+        } else {
+          window.alert("Image upload failed, submitting complaint without image.");
+        }
+      }
+
+      const response = await fetch('http://192.168.0.138:8000/api/complaints', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -285,7 +307,8 @@ function App() {
           sectorId: sectorIdInput,
           category: selectedCategory,
           subCategory: subCategory,
-          remarks: remarks
+          remarks: remarks,
+          beforeImageUrl: finalImageUrl
         })
       });
 
@@ -297,6 +320,7 @@ function App() {
         setParkNameInput('');
         setSectorIdInput('');
         setRemarks('');
+        setSelectedImage(null);
         
         fetchLiveDashboardData();
         setActiveTab('overview'); 
@@ -305,6 +329,8 @@ function App() {
       }
     } catch (error) {
       window.alert("Critical Failure: Could not connect to the GMDA servers.");
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -316,10 +342,10 @@ function App() {
     if (/\d{4}/.test(newPassword)) return window.alert("Security Policy: New password cannot contain more than 3 consecutive numbers.");
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/change-password', {
+      const response = await fetch('http://192.168.0.138:8000/api/change-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mobile: mobileInput, oldPassword: oldPassword, newPassword: newPassword })
+        body: JSON.stringify({ mobile: mobileInput, email: userEmail, oldPassword: oldPassword, newPassword: newPassword })
       });
       const data = await response.json();
 
@@ -545,6 +571,7 @@ function App() {
     <div className={`app-container ${theme}`}>
       <Navbar 
         citizenName={citizenName} 
+        userRole={userRole}
         theme={theme}
         toggleTheme={toggleTheme}
         onMenuToggle={() => setMobileMenuOpen(!isMobileMenuOpen)} 
@@ -575,10 +602,8 @@ function App() {
                : <DashboardOverview data={dashboardData} parkData={parkData} />
           )}
           
-          {/* 🔥 NEW: Clean separation for Admin vs Citizen tabs */}
           {activeTab === 'Complaint' && (
             userRole === 'admin' ? (
-              // 👑 GOD-MODE ADMIN MAP
               <div style={{ height: 'calc(100vh - 100px)', width: '100%', backgroundColor: 'var(--bg-card)', borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border-slate)', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
                 <AdminMap 
                   complaints={dashboardData?.complaints || []} 
@@ -586,10 +611,8 @@ function App() {
                 />
               </div>
             ) : (
-              // 🚶 CITIZEN COMPLAINT FORM
               <div className={`complaint-portal-layout ${!isFormFloating ? 'docked' : ''}`}>
-                
-               <div 
+                <div 
                   className={`complaint-form-container ${isFormFloating ? 'floating' : 'docked'}`}
                   style={{
                     position: isFormFloating ? 'fixed' : 'relative',
@@ -600,7 +623,6 @@ function App() {
                     zIndex: 9999 
                   }}
                 >
-                  
                   <div 
                     onPointerDown={handlePointerDown}
                     onPointerMove={handlePointerMove}
@@ -613,7 +635,6 @@ function App() {
                     }}
                   >
                     <h3 style={{ color: 'var(--text-main)', margin: 0, pointerEvents: 'none' }}>Submit Complaint</h3>
-                    
                     <div style={{ display: 'flex', gap: '6px' }}>
                       <button 
                         type="button" 
@@ -627,9 +648,8 @@ function App() {
                   </div>
 
                   <form onSubmit={handleComplaintSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-
-                     <div className="form-group">
-                      <label htmlFor="sectorIdInput">Area (Sector, Colony, Nagar)*</label>
+                    <div className="form-group">
+                      <label htmlFor="sectorIdInput">Area (Your Locality)*</label>
                       <input 
                         id="sectorIdInput" name="sectorId" type="text" className="form-input" 
                         value={sectorIdInput} onChange={(e) => setSectorIdInput(e.target.value)} 
@@ -674,7 +694,8 @@ function App() {
                         </select>
                       </div>
                     )}
-                     {selectedCategory === 'Damaged Benches' && (
+
+                    {selectedCategory === 'Damaged Benches' && (
                       <div className="form-group">
                         <label htmlFor="subCategorySelect">Park Benches Related Complaint Type</label>
                         <select id="subCategorySelect" name="subCategory" className="form-select" value={subCategory} onChange={(e) => setSubCategory(e.target.value)} required>
@@ -685,7 +706,8 @@ function App() {
                         </select>
                       </div>
                     )}
-                     {selectedCategory === 'Streetlights Not Working' && (
+
+                    {selectedCategory === 'Streetlights Not Working' && (
                       <div className="form-group">
                         <label htmlFor="subCategorySelect">Streetlight Related Complaint Type*</label>
                         <select id="subCategorySelect" name="subCategory" className="form-select" value={subCategory} onChange={(e) => setSubCategory(e.target.value)} required>
@@ -696,6 +718,7 @@ function App() {
                         </select>
                       </div>
                     )}
+
                     {selectedCategory === 'Play Area Issues' && (
                       <div className="form-group">
                         <label htmlFor="subCategorySelect">Park Play Area Related Complaint Type*</label>
@@ -768,7 +791,33 @@ function App() {
                       <textarea id="remarksInput" name="remarks" className="form-textarea" placeholder="Add any specific location details or notes here..." rows="2" value={remarks} onChange={(e) => setRemarks(e.target.value)} />
                     </div>
 
-                   <button type="submit" className="submit-complaint-btn">Submit</button>
+                    <div className="form-group">
+                      <label>Attach "Before" Photo (Optional)</label>
+                      <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                        <label 
+                          style={{
+                            padding: '8px 16px', backgroundColor: 'var(--color-input)', border: '1px solid var(--border-slate)',
+                            borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px', color: 'var(--text-main)',
+                            display: 'flex', alignItems: 'center', gap: '8px'
+                          }}
+                        >
+                          📸 Take Photo / Upload
+                          <input 
+                            type="file" 
+                            accept="image/*" 
+                            style={{ display: 'none' }}
+                            onChange={(e) => {
+                              if (e.target.files && e.target.files.length > 0) {
+                                setSelectedImage(e.target.files[0]);
+                              }
+                            }}
+                          />
+                        </label>
+                        {selectedImage && <span style={{ fontSize: '12px', color: '#15803d', fontWeight: 'bold' }}>✓ Image Selected</span>}
+                      </div>
+                    </div>
+
+                    <button type="submit" className="submit-complaint-btn">Submit</button>
                   </form>
                 </div>
 
@@ -779,9 +828,9 @@ function App() {
                     searchParkName={parkNameInput}
                     searchSectorId={sectorIdInput}
                     onParkSelect={(selectedName) => setParkNameInput(selectedName)}
-                    // NEW: Receive the GPS coordinates and auto-fill the form!
+                    onSectorSelect={(selectedSector) => setSectorIdInput(selectedSector)}
                     onCustomPinSelect={(lat, lng) => {
-                      setSectorIdInput('Custom Pin Drop');
+                      setSectorIdInput('Map Location');
                       setParkNameInput(`Unregistered Location [Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)}]`);
                     }}
                   />
@@ -790,7 +839,9 @@ function App() {
             )
           )}
 
-          {activeTab === 'Before And After Status' && <div className="view-placeholder"><h3>Before And After Status Coming Soon....</h3></div>}
+          {activeTab === 'Before And After Status' && (
+            <BeforeAfterGallery complaintsData={dashboardData?.complaints || []} />
+          )}
           
           {activeTab === 'profile' && (
             <div className="profile-details-page" style={{ flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
@@ -804,23 +855,12 @@ function App() {
                   textAlign: 'center',
                   paddingBottom: '20px' 
                 }}>
-                  
-                  {/* 1. TOP: The Badge */}
-                  <span className="badge verified" style={{ 
-                    fontSize: '18px', 
-                    padding: '6px 14px', 
-                    fontWeight: '800', 
-                    letterSpacing: '1px'
-                  }}>
+                  <span className="badge verified" style={{ fontSize: '18px', padding: '6px 14px', fontWeight: '800', letterSpacing: '1px' }}>
                     CITIZEN PROFILE
                   </span>
-
-                  {/* 2. CENTER: The Avatar Logo */}
                   <div className="large-avatar" style={{ margin: '0' }}>
                     {(citizenName || "User").split(" ").map(n => n[0]).join("").toUpperCase().substring(0, 2)}
                   </div>
-                  
-                  {/* 3. BOTTOM: The Name */}
                   <h3 style={{ margin: 0, color: 'var(--text-main)', fontSize: '28px' }}>
                     {citizenName}
                   </h3>
@@ -838,7 +878,7 @@ function App() {
                 </div>
               </div>
 
-              {mobileInput && (
+              {(mobileInput || userEmail) && (
                 <div className="profile-card-large">
                   <div className="profile-card-header" style={{ paddingBottom: '16px', marginBottom: '16px', borderBottom: '1px solid var(--border-slate)' }}>
                     <h3 style={{ margin: 0, color: 'var(--text-main)', fontSize: '15px', textTransform: 'uppercase' }}>Update Security Settings</h3>

@@ -87,7 +87,7 @@ function DashboardOverview({ data, parkData }) {
         <table className="data-table">
           <thead>
             <tr>
-              <th>Log ID</th>
+              <th>Park ID</th>
               <th>Park Landmark</th>
               <th>Sector Name</th>
               <th>Park Issue</th>

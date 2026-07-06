@@ -4,6 +4,14 @@ function AdminDashboard() {
   const [adminData, setAdminData] = useState({ kpis: {}, complaints: [] });
   const [isLoading, setIsLoading] = useState(true);
 
+  // Modal & Upload States
+  const [selectedComplaint, setSelectedComplaint] = useState(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState('Work in Progress');
+  const [resolutionRemarks, setResolutionRemarks] = useState('');
+  const [afterImage, setAfterImage] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -36,37 +44,69 @@ function AdminDashboard() {
     }
   };
 
-  const handleStatusChange = async (complaintId, newStatus) => {
-    // Optional: Ask the admin for a note to send back to the citizen
-    let adminNotes = '';
-    if (newStatus === 'Work in Progress') {
-      adminNotes = window.prompt("Add a note for the citizen (e.g., 'Contractor dispatched'):") || '';
-    } else if (newStatus === 'Resolved') {
-      adminNotes = window.prompt("Add resolution details (e.g., 'Bench replaced on June 25th'):") || '';
-    }
+  // Open the Modal instead of using window.prompt
+  const openManageModal = (complaint) => {
+    setSelectedComplaint(complaint);
+    setUpdateStatus(complaint.status);
+    setResolutionRemarks(complaint.remarks || '');
+    setAfterImage(null);
+    setIsModalOpen(true);
+  };
+
+  // Handle the dual-upload process
+  const handleUpdateSubmit = async (e) => {
+    e.preventDefault();
+    setIsUploading(true);
+    let finalImageUrl = null;
 
     try {
+      // 1. Upload the "After" image if the admin attached one
+      if (afterImage) {
+        const formData = new FormData();
+        formData.append('image', afterImage);
+
+        const uploadRes = await fetch('http://127.0.0.1:8000/api/upload', {
+          method: 'POST',
+          body: formData
+        });
+        
+        const uploadData = await uploadRes.json();
+        if (uploadRes.ok) {
+          finalImageUrl = uploadData.imageUrl;
+        } else {
+          window.alert("Image upload failed, updating status without image.");
+        }
+      }
+
+      // 2. Send the POST request to update the complaint record
       const response = await fetch('http://127.0.0.1:8000/api/complaints/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: complaintId, status: newStatus, adminNotes: adminNotes })
+        body: JSON.stringify({ 
+          id: selectedComplaint.id, 
+          status: updateStatus, 
+          adminNotes: resolutionRemarks,
+          afterImageUrl: finalImageUrl // Send the new image URL to Flask
+        })
       });
 
       if (response.ok) {
-        // Re-fetch the data to instantly update the UI table
-        fetchMasterData();
+        fetchMasterData(); // Refresh the table
+        setIsModalOpen(false); // Close the modal
       } else {
         alert("Failed to update status in the database.");
       }
     } catch (error) {
       console.error("Critical error updating complaint:", error);
+    } finally {
+      setIsUploading(false);
     }
   };
 
   if (isLoading) return <div style={{ padding: '20px' }}>Loading Master Database...</div>;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '25px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '25px', position: 'relative' }}>
       
       {/* GOD-MODE KPI GRID */}
       <div className="kpi-grid">
@@ -116,27 +156,24 @@ function AdminDashboard() {
                     <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Note: {item.remarks || 'None'}</span>
                   </td>
                   <td>
-                    <span className={`badge ${item.priority.toLowerCase()}`}>{item.priority}</span>
+                    <span className={`badge ${item.priority?.toLowerCase() || 'medium'}`}>{item.priority || 'Medium'}</span>
                   </td>
                   <td>
-                    {/* 🔥 THE GOD-MODE DROPDOWN */}
-                    <select 
-                      value={item.status}
-                      onChange={(e) => handleStatusChange(item.id, e.target.value)}
-                      style={{
-                        padding: '6px',
-                        borderRadius: '4px',
-                        border: '1px solid var(--border-slate)',
-                        backgroundColor: item.status === 'Resolved' ? '#15803d20' : item.status === 'Work in Progress' ? '#b4530920' : '#b91c1c20',
-                        color: item.status === 'Resolved' ? '#15803d' : item.status === 'Work in Progress' ? '#b45309' : '#b91c1c',
-                        fontWeight: 'bold',
-                        cursor: 'pointer'
+                    <button 
+                      onClick={() => openManageModal(item)}
+                      style={{ 
+                        padding: '6px 12px', 
+                        backgroundColor: item.status === 'Resolved' ? '#15803d' : 'var(--color-admin)', 
+                        color: 'white', 
+                        border: 'none', 
+                        borderRadius: '4px', 
+                        cursor: 'pointer', 
+                        fontWeight: 'bold', 
+                        fontSize: '12px' 
                       }}
                     >
-                      <option value="Unresolved">Unresolved</option>
-                      <option value="Work in Progress">Work in Progress</option>
-                      <option value="Resolved">Resolved</option>
-                    </select>
+                      {item.status === 'Resolved' ? 'Review' : 'Manage'}
+                    </button>
                   </td>
                 </tr>
               ))
@@ -144,6 +181,69 @@ function AdminDashboard() {
           </tbody>
         </table>
       </div>
+
+      {/* 🚀 THE ADMIN RESOLUTION MODAL */}
+      {isModalOpen && selectedComplaint && (
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+          <div style={{ backgroundColor: 'var(--bg-card)', padding: '25px', borderRadius: '8px', width: '90%', maxWidth: '500px', border: '1px solid var(--border-slate)', boxShadow: '0 10px 25px rgba(0,0,0,0.2)' }}>
+            <h3 style={{ margin: '0 0 15px 0', color: 'var(--text-main)', borderBottom: '1px solid var(--border-slate)', paddingBottom: '10px' }}>
+              Resolve Complaint #{selectedComplaint.id}
+            </h3>
+            
+            <form onSubmit={handleUpdateSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--text-muted)', marginBottom: '5px', display: 'block' }}>Update Status</label>
+                <select 
+                  className="form-select" 
+                  value={updateStatus} 
+                  onChange={(e) => setUpdateStatus(e.target.value)}
+                >
+                  <option value="Unresolved">Unresolved (New)</option>
+                  <option value="Work in Progress">Work in Progress</option>
+                  <option value="Resolved">Resolved (Closed)</option>
+                </select>
+              </div>
+
+              {/* Only show the camera option if they are actually closing the ticket */}
+              {updateStatus === 'Resolved' && (
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--text-muted)', marginBottom: '5px', display: 'block' }}>Upload "After" Photo Proof</label>
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    <label style={{ padding: '8px 16px', backgroundColor: 'var(--color-input)', border: '1px solid var(--border-slate)', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      📷 Take Photo / Upload
+                      <input 
+                        type="file" accept="image/*" capture="environment" style={{ display: 'none' }}
+                        onChange={(e) => setAfterImage(e.target.files[0])}
+                      />
+                    </label>
+                    {afterImage && <span style={{ fontSize: '12px', color: '#15803d', fontWeight: 'bold' }}>✓ Ready</span>}
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--text-muted)', marginBottom: '5px', display: 'block' }}>Official Admin Notes</label>
+                <textarea 
+                  className="form-textarea" rows="3" 
+                  placeholder="e.g., Contractor dispatched / Bench replaced..."
+                  value={resolutionRemarks}
+                  onChange={(e) => setResolutionRemarks(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                <button type="submit" disabled={isUploading} style={{ flex: 1, padding: '10px', backgroundColor: '#15803d', color: 'white', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: isUploading ? 'not-allowed' : 'pointer' }}>
+                  {isUploading ? 'Uploading & Saving...' : 'Save Updates'}
+                </button>
+                <button type="button" onClick={() => setIsModalOpen(false)} style={{ flex: 1, padding: '10px', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)', border: '1px solid var(--border-slate)', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

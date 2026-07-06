@@ -16,7 +16,9 @@ function Sidebar({ activeTab, onTabChange, isMobileOpen, onMobileClose, onLogout
             </button>
             <button 
               onClick={() => onTabChange('Complaint')}
-              className={`nav-item ${activeTab === 'Complaint' ? 'active-tab' : ''}`}
+              className={`nav-item ${activeTab === 'Complaint' ? 'active-tab' : ''
+                
+              }`}
             >
               <span style={{ marginRight: '8px' }}>📝</span> {userRole === 'admin' ? 'City-Wide Map' : 'File Park Complaint'}
             </button>
