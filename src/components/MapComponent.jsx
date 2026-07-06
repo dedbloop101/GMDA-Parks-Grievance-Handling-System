@@ -104,8 +104,8 @@ function MapComponent({ isActive, parkData, searchParkName, searchSectorId, onPa
 
             const popupContent = `
               <div style="text-align: center;">
-                <b style="font-size: 14px; color: #1e40af;">Unregistered Location</b><br>
-                <span style="font-size: 11px; color: #64748b;">Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}</span><br>
+                <b style="font-size: 14px; color: #1e40af;">Map Location</b><br>
+                <span style="font-size: 11px; color: #64748b;">Latitude: ${lat.toFixed(5)}, Longitude: ${lng.toFixed(5)}</span><br>
                 <button class="select-custom-pin-btn" style="margin-top: 8px; padding: 6px 12px; background: #2563eb; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%;">
                   Use this Location
                 </button>
@@ -180,6 +180,7 @@ function MapComponent({ isActive, parkData, searchParkName, searchSectorId, onPa
   }, [isActive]);
 
   // SPATIAL SEARCH ENGINE
+  // SPATIAL SEARCH ENGINE
   useEffect(() => {
     if (!mapInstanceRef.current || !parkData) return;
 
@@ -190,19 +191,43 @@ function MapComponent({ isActive, parkData, searchParkName, searchSectorId, onPa
     const searchTerm = (searchParkName || '').toLowerCase().trim();
     const sectorTerm = (searchSectorId || '').toLowerCase().trim();
 
-    const normalize = (str) => str.toString().toLowerCase().replace(/[^a-z0-9]/g, '');
-    const searchAreaNorm = normalize(sectorTerm);
+    // 1. Normalize input (Sec-11 -> ["sector", "11"])
+    const normalizedSector = sectorTerm
+      .replace(/[^a-z0-9]/g, ' ') 
+      .replace(/\bsec\b/g, 'sector') 
+      .replace(/sector(\d+)/g, 'sector $1') 
+      .replace(/\s+/g, ' ') 
+      .trim();
 
-    if (searchTerm.length < 2 && searchAreaNorm.length === 0) return;
+    if (searchTerm.length < 2 && normalizedSector.length < 2) return;
+
+    const sectorTokens = normalizedSector.split(' ').filter(t => t.length > 0);
 
     const matchedParks = parkData.features.filter(park => {
       const props = park.properties || {};
-      const nameNorm = normalize(props.name || '');
+      const nameNorm = (props.name || '').toLowerCase();
+      
+      // 2. Normalize the database string the exact same way
       const allPropsStr = Object.values(props).join(" ").toLowerCase();
-      const areaNorm = normalize(allPropsStr);
+      const cleanPropsStr = allPropsStr.replace(/[^a-z0-9]/g, ' ');
+      const parkDataTokens = cleanPropsStr.split(' ').filter(t => t.length > 0);
 
-      const matchesArea = searchAreaNorm.length > 0 ? areaNorm.includes(searchAreaNorm) : true;
-      const matchesName = searchTerm.length > 0 ? nameNorm.includes(normalize(searchTerm)) : true;
+      // 🔥 THE FIX: Strict token matching
+      const matchesArea = sectorTokens.length > 0 
+        ? sectorTokens.every(token => {
+            // If the user typed a number (e.g., "11"), it MUST be an exact whole-word match
+            // This strictly prevents "11" from triggering "110", "111", etc.
+            if (/^\d+$/.test(token)) {
+              return parkDataTokens.includes(token);
+            }
+            // If it's a word like "sector" or "phase", partial match is fine
+            return allPropsStr.includes(token);
+          })
+        : true;
+
+      const matchesName = searchTerm.length > 0 
+        ? nameNorm.includes(searchTerm) 
+        : true;
 
       return matchesArea && matchesName;
     });

@@ -10,6 +10,8 @@ import AdminDashboard from './components/AdminDashboard';
 import BeforeAfterGallery from './components/BeforeAfterGallery';
 
 function App() {
+  //DYNAMIC IP:
+  const API_BASE = `http://${window.location.hostname}:8000`;
   
   // SESSION PERSISTENCE
   const [isLoggedIn, setIsLoggedIn] = useState(() => sessionStorage.getItem('isLoggedIn') === 'true');
@@ -34,6 +36,7 @@ function App() {
   const [emailInput, setEmailInput] = useState('');
   const [otpInput, setOtpInput] = useState('');
   const [isOtpSent, setIsOtpSent] = useState(false);
+  const [otpTimer, setOtpTimer] = useState(0); // 🔥 TIMER STATE
 
   const [theme, setTheme] = useState('light');
 
@@ -70,6 +73,7 @@ function App() {
     setEmailInput('');
     setOtpInput('');
     setIsOtpSent(false);
+    setOtpTimer(0);
     setUserRole('citizen');
     setActiveTab('overview');
     
@@ -109,18 +113,42 @@ function App() {
   const fetchLiveDashboardData = async () => {
     try {
       const endpoint = userRole === 'admin' 
-        ? 'http://192.168.0.138:8000/api/complaints' 
-        : `http://192.168.0.138:8000/api/complaints?citizenName=${encodeURIComponent(citizenName)}`;
-
+      ? `${API_BASE}/api/complaints` 
+      : `${API_BASE}/api/complaints?citizenName=${encodeURIComponent(citizenName)}`;
+       
       const response = await fetch(endpoint, { cache: 'no-store' });
       if (response.ok) {
         const data = await response.json();
-        setDashboardData({ kpis: data.kpis, complaints: data.complaints });
+        
+        const cleanedComplaints = data.complaints.map(complaint => {
+          if (complaint.parkName && complaint.parkName.includes('Unregistered Location')) {
+            return {
+              ...complaint,
+              parkName: complaint.parkName.replace('Unregistered Location', 'Map Location').replace('Lat:', 'Latitude:').replace('Lng:', 'Longitude:')
+            };
+          }
+          return complaint;
+        });
+
+        setDashboardData({ kpis: data.kpis, complaints: cleanedComplaints });
       }
     } catch (error) {
       console.error("Failed to sync dashboard:", error);
     }
   };
+
+  // OTP Countdown Logic
+  useEffect(() => {
+    let interval;
+    if (otpTimer > 0) {
+      interval = setInterval(() => {
+        setOtpTimer((prev) => prev - 1);
+      }, 1000);
+    } else if (otpTimer === 0) {
+      clearInterval(interval);
+    }
+    return () => clearInterval(interval);
+  }, [otpTimer]);
 
   useEffect(() => {
     if (isLoggedIn && (activeTab === 'overview' || activeTab === 'Before And After Status')) {
@@ -177,7 +205,7 @@ function App() {
     }
 
     try {
-      const response = await fetch('http://192.168.0.138:8000/api/login', {
+      const response = await fetch(`${API_BASE}/api/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mobile: mobileInput, password: password })
@@ -202,7 +230,7 @@ function App() {
     if (/\d{4}/.test(regPassword)) return alert("Registration Failed: Password cannot contain more than 3 consecutive numbers.");
 
     try {
-      const response = await fetch('http://192.168.0.138:8000/api/register', {
+      const response = await fetch(`${API_BASE}/api/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fullName: regName, mobile: regMobile, password: regPassword })
@@ -223,14 +251,15 @@ function App() {
   const requestOtp = async () => {
     if (!emailInput.includes('@')) return alert("Enter a valid email address.");
     try {
-      const response = await fetch('http://192.168.0.138:8000/api/send-otp', {
+      const response = await fetch(`${API_BASE}/api/send-otp`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: emailInput })
       });
       if (response.ok) {
         setIsOtpSent(true);
+        setOtpTimer(180); // 🔥 3 Minute Timer
       } else {
-        alert("Failed to send OTP.");
+        alert("Failed to send OTP. Please check if the email is already registered or try again later.");
       }
     } catch (e) {
       alert("Server connection error.");
@@ -240,7 +269,7 @@ function App() {
   const submitOtpLogin = async (e) => {
     e.preventDefault();
     try {
-      const response = await fetch('http://192.168.0.138:8000/api/verify-login-otp', {
+      const response = await fetch(`${API_BASE}/api/verify-login-otp`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: emailInput, otp: otpInput })
       });
@@ -260,7 +289,7 @@ function App() {
     if (!regName) return alert("Please enter your Full Name.");
     
     try {
-      const response = await fetch('http://192.168.0.138:8000/api/verify-register-otp', {
+      const response = await fetch(`${API_BASE}/api/verify-register-otp`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fullName: regName, email: emailInput, otp: otpInput })
       });
@@ -285,7 +314,7 @@ function App() {
         const formData = new FormData();
         formData.append('image', selectedImage);
 
-        const uploadRes = await fetch('http://192.168.0.138:8000/api/upload', {
+        const uploadRes = await fetch(`${API_BASE}/api/upload`, {
           method: 'POST',
           body: formData 
         });
@@ -298,7 +327,7 @@ function App() {
         }
       }
 
-      const response = await fetch('http://192.168.0.138:8000/api/complaints', {
+      const response = await fetch(`${API_BASE}/api/complaints`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -342,7 +371,7 @@ function App() {
     if (/\d{4}/.test(newPassword)) return window.alert("Security Policy: New password cannot contain more than 3 consecutive numbers.");
 
     try {
-      const response = await fetch('http://192.168.0.138:8000/api/change-password', {
+      const response = await fetch(`${API_BASE}/api/change-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mobile: mobileInput, email: userEmail, oldPassword: oldPassword, newPassword: newPassword })
@@ -378,10 +407,10 @@ function App() {
               <img src={gmdaLogo} alt="GMDA" />
               <h1 className="system-headline">Parks Grievance Handling System</h1>
             </div>
-              <p className="system-tagline">One Stop Solution for Your Park Related Concerns</p>
+              <p className="system-tagline">Report park issues quickly. Track your complaint every step of the way.</p>
             </div>
             <div className="quick-nav-links">
-              <button className="nav-anchor-btn" onClick={() => { setAuthMode('register'); setIsOtpSent(false); }}>Account Setup</button>
+              <button className="nav-anchor-btn" onClick={() => { setAuthMode('register'); setIsOtpSent(false); }}>Create Account</button>
               <button className="nav-anchor-btn" onClick={() => alert('Please Sign In first to register a complaint!')}>Register Complaints </button>
             </div>
           </div>
@@ -424,12 +453,35 @@ function App() {
                       <div className="input-wrapper">
                         <input type="email" className="input-field" placeholder="Email Address" value={emailInput} onChange={(e) => setEmailInput(e.target.value)} disabled={isOtpSent} required />
                       </div>
+                      
+                      {/* 🔥 LOGIN OTP WITH TIMER UI */}
                       {isOtpSent ? (
                         <>
+                          <div style={{ textAlign: 'center', marginBottom: '15px' }}>
+                            <span style={{ color: '#15803d', fontWeight: 'bold', fontSize: '13px' }}>
+                              OTP has been sent to your email
+                            </span>
+                          </div>
                           <div className="input-wrapper">
                             <input type="text" maxLength="6" className="input-field" placeholder="Enter 6-Digit OTP" value={otpInput} onChange={(e) => setOtpInput(e.target.value.replace(/\D/g, ''))} required />
                           </div>
                           <button type="submit" className="submit-portal-btn" style={{ backgroundColor: '#15803d' }}>Verify & Sign In</button>
+                          
+                          <div style={{ textAlign: 'center', marginTop: '15px' }}>
+                            {otpTimer > 0 ? (
+                              <span style={{ color: 'var(--text-muted)', fontSize: '13px', fontWeight: 'bold' }}>
+                                Resend OTP in {Math.floor(otpTimer / 60).toString().padStart(2, '0')}:{(otpTimer % 60).toString().padStart(2, '0')}
+                              </span>
+                            ) : (
+                              <button 
+                                type="button" 
+                                onClick={requestOtp} 
+                                style={{ background: 'none', border: 'none', color: 'var(--color-admin)', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer', textDecoration: 'underline' }}
+                              >
+                                Resend OTP
+                              </button>
+                            )}
+                          </div>
                         </>
                       ) : (
                         <button type="button" className="submit-portal-btn" onClick={requestOtp}>Send OTP</button>
@@ -516,12 +568,35 @@ function App() {
                       <div className="input-wrapper">
                         <input type="email" className="input-field" placeholder="Email Address*" value={emailInput} onChange={(e) => setEmailInput(e.target.value)} disabled={isOtpSent} required />
                       </div>
+                      
+                      {/* 🔥 REGISTER OTP WITH TIMER UI */}
                       {isOtpSent ? (
                         <>
+                          <div style={{ textAlign: 'center', marginBottom: '15px' }}>
+                            <span style={{ color: '#15803d', fontWeight: 'bold', fontSize: '13px' }}>
+                              ✓ OTP has been sent to your email
+                            </span>
+                          </div>
                           <div className="input-wrapper">
                             <input type="text" maxLength="6" className="input-field" placeholder="Enter 6-Digit OTP" value={otpInput} onChange={(e) => setOtpInput(e.target.value.replace(/\D/g, ''))} required />
                           </div>
                           <button type="submit" className="submit-portal-btn" style={{ backgroundColor: '#15803d' }}>Verify & Register</button>
+
+                          <div style={{ textAlign: 'center', marginTop: '15px' }}>
+                            {otpTimer > 0 ? (
+                              <span style={{ color: 'var(--text-muted)', fontSize: '13px', fontWeight: 'bold' }}>
+                                Resend OTP in {Math.floor(otpTimer / 60).toString().padStart(2, '0')}:{(otpTimer % 60).toString().padStart(2, '0')}
+                              </span>
+                            ) : (
+                              <button 
+                                type="button" 
+                                onClick={requestOtp} 
+                                style={{ background: 'none', border: 'none', color: 'var(--color-admin)', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer', textDecoration: 'underline' }}
+                              >
+                                Resend OTP
+                              </button>
+                            )}
+                          </div>
                         </>
                       ) : (
                         <button type="button" className="submit-portal-btn" onClick={requestOtp}>Send OTP</button>
@@ -831,7 +906,7 @@ function App() {
                     onSectorSelect={(selectedSector) => setSectorIdInput(selectedSector)}
                     onCustomPinSelect={(lat, lng) => {
                       setSectorIdInput('Map Location');
-                      setParkNameInput(`Unregistered Location [Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)}]`);
+                      setParkNameInput(`Map Location [Latitude: ${lat.toFixed(4)}, Longitude: ${lng.toFixed(4)}]`);
                     }}
                   />
                 </div>

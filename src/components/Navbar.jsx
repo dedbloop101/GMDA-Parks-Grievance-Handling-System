@@ -9,7 +9,7 @@ function Navbar({ citizenName, theme, userRole, toggleTheme, onMenuToggle, onPro
         </button>
         <img src={gmdaLogo} alt="GMDA Logo" className="logo-img" />
         <div>
-          <h1 className="navbar-title">Parks Grievance Ecosystem</h1>
+          <h1 className="navbar-title">Parks Grievance System</h1>
           <p className="navbar-subtitle">Citizen Portal</p>
         </div>
       </div>
