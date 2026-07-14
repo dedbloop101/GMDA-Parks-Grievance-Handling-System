@@ -3,11 +3,11 @@ import React, { useState } from 'react';
 function BeforeAfterGallery({ complaintsData }) {
   const [activeTab, setActiveTab] = useState('all');
   
-  // 🔥 NEW: State to track which image is currently clicked/expanded
+  // State to track which image is currently clicked/expanded
   const [expandedImage, setExpandedImage] = useState(null);
 
   // Filter complaints that have at least a 'before' image logged
-  const imageComplaints = (complaintsData || []).filter(c => c.beforeImage);
+  const imageComplaints = (complaintsData || []).filter(c => c.beforeImageUrl);
 
   const filteredComplaints = imageComplaints.filter(c => {
     if (activeTab === 'resolved') return c.status === 'Resolved';
@@ -82,20 +82,22 @@ function BeforeAfterGallery({ complaintsData }) {
               </div>
 
               {/* Dynamic Image Display Container */}
-              <div style={{ display: 'grid', gridTemplateColumns: item.afterImage ? '1fr 1fr' : '1fr', gap: '15px', marginTop: '10px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: item.afterImageUrl ? '1fr 1fr' : '1fr', gap: '15px', marginTop: '10px' }}>
                 
                 {/* BEFORE CONTAINER */}
-                <div style={{ position: 'relative' }}>
+                {/* 🔥 Yahan parent div ko 75% width aur margin '0 auto' de diya hai jisse bottom gap khatam ho jayega */}
+                <div style={{ position: 'relative', width: '75%', margin: '0 auto' }}>
                   <div style={{ position: 'absolute', top: '8px', left: '8px', backgroundColor: 'rgba(185, 28, 28, 0.85)', color: 'white', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold', zIndex: 10, pointerEvents: 'none' }}>
                     ⚠️ BEFORE
                   </div>
                   <img 
-                    src={item.beforeImage} 
+                    src={item.beforeImageUrl} 
                     alt="Grievance context" 
-                    onClick={() => setExpandedImage(item.beforeImage)} //Click handler added
+                    onClick={() => setExpandedImage(item.beforeImageUrl)} 
                     style={{ 
-                      width: '100%', height: '220px', objectFit: 'cover', borderRadius: '6px', 
-                      border: '1px solid var(--border-slate, #cbd5e1)', cursor: 'pointer', transition: 'transform 0.2s' 
+                      width: '100%', aspectRatio: '1/1', objectFit: 'cover', borderRadius: '6px', 
+                      border: '1px solid var(--border-slate, #cbd5e1)', cursor: 'pointer', transition: 'transform 0.2s',
+                      display: 'block' 
                     }} 
                     onMouseOver={(e) => e.currentTarget.style.transform = 'scale(1.02)'}
                     onMouseOut={(e) => e.currentTarget.style.transform = 'scale(1)'}
@@ -104,25 +106,26 @@ function BeforeAfterGallery({ complaintsData }) {
                 </div>
 
                 {/* AFTER CONTAINER */}
-                {item.afterImage ? (
-                  <div style={{ position: 'relative' }}>
+                {item.afterImageUrl ? (
+                  <div style={{ position: 'relative', width: '75%', margin: '0 auto' }}>
                     <div style={{ position: 'absolute', top: '8px', left: '8px', backgroundColor: 'rgba(21, 128, 61, 0.85)', color: 'white', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold', zIndex: 10, pointerEvents: 'none' }}>
                       ✅ FIXED
                     </div>
                     <img 
-                      src={item.afterImage} 
+                      src={item.afterImageUrl} 
                       alt="Resolution context" 
-                      onClick={() => setExpandedImage(item.afterImage)} // 🔥 Click handler added
+                      onClick={() => setExpandedImage(item.afterImageUrl)} 
                       style={{ 
-                        width: '100%', height: '220px', objectFit: 'cover', borderRadius: '6px', 
-                        border: '1px solid var(--border-slate, #cbd5e1)', cursor: 'pointer', transition: 'transform 0.2s' 
+                        width: '100%', aspectRatio: '1/1', objectFit: 'cover', borderRadius: '6px', 
+                        border: '1px solid var(--border-slate, #cbd5e1)', cursor: 'pointer', transition: 'transform 0.2s',
+                        display: 'block' 
                       }} 
                       onMouseOver={(e) => e.currentTarget.style.transform = 'scale(1.02)'}
                       onMouseOut={(e) => e.currentTarget.style.transform = 'scale(1)'}
                     />
                   </div>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', backgroundColor: 'var(--bg-body, #f8fafc)', borderRadius: '6px', border: '1px dashed var(--border-slate, #cbd5e1)', padding: '20px', minHeight: '220px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', backgroundColor: 'var(--bg-body, #f8fafc)', borderRadius: '6px', border: '1px dashed var(--border-slate, #cbd5e1)', padding: '20px', minHeight: '220px', width: '75%', margin: '0 auto' }}>
                     <span style={{ fontSize: '24px', marginBottom: '8px' }}>🛠️</span>
                     <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted, #64748b)', textAlign: 'center', fontWeight: '500' }}>
                       GMDA Maintenance operations are currently active on site.

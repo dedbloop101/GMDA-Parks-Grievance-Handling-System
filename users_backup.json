@@ -1,0 +1,42 @@
+[
+    {
+        "id": 1,
+        "full_name": "System Admin",
+        "mobile_number": "0000000000",
+        "email": null,
+        "password": "$2b$12$5hYYZ1rLXqMGcA5FaIoPzOKETVA4M/NAZG0q9meATfO8jLOCgdMZu",
+        "role": "admin"
+    },
+    {
+        "id": 3,
+        "full_name": "Chirag Panwar",
+        "mobile_number": null,
+        "email": "chirag2005panwar@gmail.com",
+        "password": null,
+        "role": "citizen"
+    },
+    {
+        "id": 14,
+        "full_name": "Chirag Panwar",
+        "mobile_number": "8595616328",
+        "email": null,
+        "password": "$2b$12$YtRmCz/qpJPyuYGYzdRkSOy7O65j1AWhxKjU5RV5maTbw.F5vDTM6",
+        "role": "citizen"
+    },
+    {
+        "id": 20,
+        "full_name": "Rahul",
+        "mobile_number": "9638527413",
+        "email": null,
+        "password": "$2b$12$gRr9i33AfNDqXSJA0OSv.O0KQIuFno1/DOV3mr8VgZbKnaxWgAm3i",
+        "role": "citizen"
+    },
+    {
+        "id": 83,
+        "full_name": "Disha Vats",
+        "mobile_number": "9837335995",
+        "email": null,
+        "password": "$2b$12$5SM9LkFAgmr9Gjrt6cysduwY1mhVrNvt2fkiVpKI4JFyyuOfh/LaG",
+        "role": "citizen"
+    }
+]

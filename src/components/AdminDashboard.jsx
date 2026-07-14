@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
+import DataTable from 'react-data-table-component';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 
 function AdminDashboard() {
-  // 🔥 DYNAMIC IP FIX: Yahan bhi API_BASE use hoga
   const API_BASE = `http://${window.location.hostname}:8000`;
 
   const [adminData, setAdminData] = useState({ kpis: {}, complaints: [] });
   const [isLoading, setIsLoading] = useState(true);
+  const [filterText, setFilterText] = useState(''); 
 
   // Modal & Upload States
   const [selectedComplaint, setSelectedComplaint] = useState(null);
@@ -15,7 +17,6 @@ function AdminDashboard() {
   const [afterImage, setAfterImage] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
 
-  // 🔥 CLEANUP LOGIC: Data format sahi karne wala function
   const cleanComplaintData = (complaints) => {
     return complaints.map(complaint => ({
       ...complaint,
@@ -84,9 +85,13 @@ function AdminDashboard() {
         else window.alert("Image upload failed, updating status without image.");
       }
 
+      // 🛡️ JWT SECURE API CALL
       const response = await fetch(`${API_BASE}/api/complaints/update`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${sessionStorage.getItem('jwtToken')}` 
+        },
         body: JSON.stringify({ 
           id: selectedComplaint.id, 
           status: updateStatus, 
@@ -108,10 +113,129 @@ function AdminDashboard() {
     }
   };
 
+  // 🔥 SEARCH LOGIC
+  const filteredItems = adminData.complaints.filter(
+    item => 
+      (item.parkName && item.parkName.toLowerCase().includes(filterText.toLowerCase())) ||
+      (item.sector && item.sector.toLowerCase().includes(filterText.toLowerCase())) ||
+      (item.id && item.id.toString().includes(filterText))
+  );
+
+  // 📊 DATA PROCESSING FOR CHARTS
+  const statusCounts = adminData.complaints.reduce((acc, curr) => {
+    acc[curr.status] = (acc[curr.status] || 0) + 1;
+    return acc;
+  }, {});
+
+  const statusData = [
+    { name: 'Resolved', value: statusCounts['Resolved'] || 0, color: '#15803d' },
+    { name: 'Work in Progress', value: statusCounts['Work in Progress'] || 0, color: '#b45309' },
+    { name: 'Unresolved', value: statusCounts['Unresolved'] || 0, color: '#b91c1c' }
+  ].filter(d => d.value > 0);
+
+  const categoryCounts = adminData.complaints.reduce((acc, curr) => {
+    const mainCategory = curr.issue ? curr.issue.split(':')[0] : 'Other';
+    acc[mainCategory] = (acc[mainCategory] || 0) + 1;
+    return acc;
+  }, {});
+
+  const categoryData = Object.keys(categoryCounts).map(key => ({
+    name: key,
+    Complaints: categoryCounts[key]
+  })).sort((a, b) => b.Complaints - a.Complaints).slice(0, 5); // Top 5 Categories
+
+  const columns = [
+    {
+      name: 'Log ID',
+      selector: row => row.id,
+      sortable: true,
+      width: '90px',
+      cell: row => <span style={{ fontFamily: 'monospace', fontWeight: 'bold' }}>{row.id}</span>
+    },
+    {
+      name: 'Sector / Park',
+      selector: row => row.parkName,
+      sortable: true,
+      wrap: true,
+      cell: row => (
+        <div>
+          <strong>{row.parkName}</strong><br/>
+          <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{row.sector}</span>
+        </div>
+      )
+    },
+    {
+      name: 'Issue Logged',
+      selector: row => row.issue,
+      wrap: true,
+      cell: row => (
+        <div>
+          {row.issue}<br/>
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Note: {row.remarks || 'None'}</span>
+        </div>
+      )
+    },
+    {
+      name: 'Priority',
+      selector: row => row.priority,
+      sortable: true,
+      width: '120px',
+      cell: row => <span className={`badge ${row.priority?.toLowerCase() || 'medium'}`}>{row.priority || 'Medium'}</span>
+    },
+    {
+      name: 'Attachments',
+      center: true,
+      width: '120px',
+      cell: row => (
+        row.beforeImageUrl ? (
+          <div 
+            onClick={() => window.open(row.beforeImageUrl, '_blank')}
+            style={{ display: 'inline-block', cursor: 'pointer', border: '1px solid var(--border-slate)', borderRadius: '6px', overflow: 'hidden', width: '45px', height: '45px', backgroundColor: 'var(--bg-body)' }}
+            title="Click to view full image"
+          >
+            <img src={row.beforeImageUrl} alt="Proof" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          </div>
+        ) : (
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic' }}>No attachments</span>
+        )
+      )
+    },
+    {
+      name: 'Admin Action',
+      center: true,
+      width: '120px',
+      cell: row => (
+        <button 
+          onClick={() => openManageModal(row)}
+          style={{ 
+            padding: '6px 12px', 
+            backgroundColor: row.status === 'Resolved' ? '#15803d' : 'var(--color-admin)', 
+            color: 'white', 
+            border: 'none', 
+            borderRadius: '4px', 
+            cursor: 'pointer', 
+            fontWeight: 'bold', 
+            fontSize: '12px',
+            width: '100%'
+          }}
+        >
+          {row.status === 'Resolved' ? 'Review' : 'Manage'}
+        </button>
+      )
+    }
+  ];
+
+  const customStyles = {
+    headRow: { style: { backgroundColor: 'var(--bg-body)', color: 'var(--text-muted)', fontWeight: 'bold', textTransform: 'uppercase', fontSize: '12px', borderBottom: '1px solid var(--border-slate)' } },
+    rows: { style: { backgroundColor: 'var(--bg-card)', color: 'var(--text-main)', fontSize: '13px', borderBottom: '1px solid var(--border-slate)', '&:hover': { backgroundColor: 'var(--bg-body)' } } },
+    pagination: { style: { backgroundColor: 'var(--bg-card)', color: 'var(--text-main)', borderTop: '1px solid var(--border-slate)' } },
+  };
+
   if (isLoading) return <div style={{ padding: '20px' }}>Loading Master Database...</div>;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '25px', position: 'relative' }}>
+      
       <div className="kpi-grid">
         <div className="kpi-card" style={{ borderTop: '4px solid #b91c1c' }}>
           <p>Total Active Complaints</p>
@@ -127,62 +251,71 @@ function AdminDashboard() {
         </div>
       </div>
 
-      <div className="table-container">
-        <h3 style={{ fontSize: '16px', fontWeight: 'bold', textTransform: 'uppercase', color: 'var(--color-admin)' }}>
-          Master Grievance Control Panel
-        </h3>
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Log ID</th>
-              <th>Sector / Park</th>
-              <th>Issue Logged</th>
-              <th>Priority</th>
-              <th>Admin Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {adminData.complaints.length === 0 ? (
-              <tr><td colSpan="5" style={{ textAlign: 'center', padding: '30px' }}>System Clear. No grievances found.</td></tr>
-            ) : (
-              adminData.complaints.map((item) => (
-                <tr key={item.id}>
-                  <td style={{ fontFamily: 'monospace', fontWeight: 'bold' }}>{item.id}</td>
-                  <td>
-                    <strong>{item.parkName}</strong><br/>
-                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{item.sector}</span>
-                  </td>
-                  <td>
-                    {item.issue}<br/>
-                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Note: {item.remarks || 'None'}</span>
-                  </td>
-                  <td>
-                    <span className={`badge ${item.priority?.toLowerCase() || 'medium'}`}>{item.priority || 'Medium'}</span>
-                  </td>
-                  <td>
-                    <button 
-                      onClick={() => openManageModal(item)}
-                      style={{ 
-                        padding: '6px 12px', 
-                        backgroundColor: item.status === 'Resolved' ? '#15803d' : 'var(--color-admin)', 
-                        color: 'white', 
-                        border: 'none', 
-                        borderRadius: '4px', 
-                        cursor: 'pointer', 
-                        fontWeight: 'bold', 
-                        fontSize: '12px' 
-                      }}
-                    >
-                      {item.status === 'Resolved' ? 'Review' : 'Manage'}
-                    </button>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+      {/* 🚀 NEW: ANALYTICS CHARTS SECTION */}
+      {adminData.complaints.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '25px' }}>
+          
+          {/* Chart 1: Status Pie Chart */}
+          <div className="table-container" style={{ display: 'flex', flexDirection: 'column', height: '350px', padding: '20px' }}>
+            <h3 style={{ fontSize: '15px', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '10px', color: 'var(--text-main)' }}>System Resolution Status</h3>
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={statusData} cx="50%" cy="50%" innerRadius={70} outerRadius={110} paddingAngle={3} dataKey="value" stroke="none">
+                  {statusData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
+                </Pie>
+                <RechartsTooltip contentStyle={{ borderRadius: '4px', border: '1px solid var(--border-slate)', backgroundColor: 'var(--bg-card)' }} itemStyle={{ color: 'var(--text-main)', fontWeight: 'bold' }} />
+                <Legend verticalAlign="bottom" height={36} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Chart 2: Top Categories Bar Chart */}
+          <div className="table-container" style={{ display: 'flex', flexDirection: 'column', height: '350px', padding: '20px' }}>
+            <h3 style={{ fontSize: '15px', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '10px', color: 'var(--text-main)' }}>Top Problem Areas (Categories)</h3>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={categoryData} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border-slate)" vertical={false} />
+                <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'var(--text-muted)' }} tickLine={false} axisLine={false} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: 'var(--text-muted)' }} tickLine={false} axisLine={false} />
+                <RechartsTooltip 
+                  cursor={{ fill: 'var(--bg-body)' }} 
+                  contentStyle={{ borderRadius: '4px', border: '1px solid var(--border-slate)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)' }} 
+                />
+                <Bar dataKey="Complaints" fill="var(--color-admin)" radius={[4, 4, 0, 0]} maxBarSize={50} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+        </div>
+      )}
+
+      {/* DATA TABLE */}
+      <div className="table-container" style={{ padding: '0', overflow: 'hidden' }}>
+        <div style={{ padding: '15px 20px', borderBottom: '1px solid var(--border-slate)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--bg-card)', flexWrap: 'wrap', gap: '10px' }}>
+          <h3 style={{ fontSize: '16px', fontWeight: 'bold', textTransform: 'uppercase', color: 'var(--color-admin)', margin: 0 }}>
+            Master Grievance Control Panel
+          </h3>
+          <input 
+            type="text" 
+            placeholder="Search by ID, Sector, or Park..." 
+            value={filterText} 
+            onChange={(e) => setFilterText(e.target.value)} 
+            style={{ padding: '8px 12px', borderRadius: '4px', border: '1px solid var(--border-slate)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)', width: '250px', fontSize: '13px' }}
+          />
+        </div>
+        
+        <DataTable
+          columns={columns}
+          data={filteredItems}
+          pagination
+          paginationPerPage={10}
+          highlightOnHover
+          customStyles={customStyles}
+          noDataComponent={<div style={{ padding: '30px', color: 'var(--text-muted)' }}>System Clear. No grievances found.</div>}
+        />
       </div>
 
+      {/* MANAGE COMPLAINT MODAL */}
       {isModalOpen && selectedComplaint && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
           <div style={{ backgroundColor: 'var(--bg-card)', padding: '25px', borderRadius: '8px', width: '90%', maxWidth: '500px', border: '1px solid var(--border-slate)', boxShadow: '0 10px 25px rgba(0,0,0,0.2)' }}>
@@ -203,7 +336,7 @@ function AdminDashboard() {
                   <label style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--text-muted)', marginBottom: '5px', display: 'block' }}>Upload "After" Photo Proof</label>
                   <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                     <label style={{ padding: '8px 16px', backgroundColor: 'var(--color-input)', border: '1px solid var(--border-slate)', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      📷 Take Photo / Upload
+                      📸 Take Photo / Upload
                       <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={(e) => setAfterImage(e.target.files[0])} />
                     </label>
                     {afterImage && <span style={{ fontSize: '12px', color: '#15803d', fontWeight: 'bold' }}>✓ Ready</span>}

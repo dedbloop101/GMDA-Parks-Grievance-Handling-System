@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import sqlite3
+import psycopg2
+from psycopg2.extras import RealDictCursor
 import bcrypt
 import os
 import random
@@ -8,73 +9,47 @@ import smtplib
 from email.mime.text import MIMEText 
 from werkzeug.utils import secure_filename
 from flask import send_from_directory
+import jwt
+from datetime import datetime, timedelta
+from functools import wraps
 
 app = Flask(__name__)
 CORS(app) 
-app.secret_key = os.urandom(24)
+app.config['SECRET_KEY'] = 'gmda_super_secret_key_2026'
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, 'gmda_portal.db') 
+DB_URI = "postgresql://postgres:Chirag@localhost:5432/gmda_parks"
 
 OTP_STORE = {}
 
 def get_db_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row  
+
+    conn = psycopg2.connect(DB_URI, cursor_factory=RealDictCursor)
     return conn
 
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    try:
-        cursor = conn.cursor()
-        cursor.execute('''CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, 
-            full_name TEXT NOT NULL, 
-            mobile_number TEXT UNIQUE, 
-            email TEXT UNIQUE,
-            password BLOB, 
-            role TEXT DEFAULT 'citizen'
-        )''')
-        
-        admin_pass = bcrypt.hashpw('admin1234'.encode('utf-8'), bcrypt.gensalt())
-        cursor.execute('''
-        INSERT OR IGNORE INTO users (full_name, mobile_number, password, role)
-        VALUES (?, ?, ?, ?)
-        ''', ('System Admin', '0000000000', admin_pass, 'admin'))
-        
-        cursor.execute('''CREATE TABLE IF NOT EXISTS complaints (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            citizen_name TEXT NOT NULL,
-            park_name TEXT NOT NULL,
-            sector_id TEXT NOT NULL,
-            category TEXT NOT NULL,
-            sub_category TEXT,
-            remarks TEXT,
-            status TEXT DEFAULT 'Unresolved',
-            priority TEXT DEFAULT 'Medium',
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            before_image TEXT,
-            after_image TEXT
-        )''')
-        
-        # Safe migration: Add the columns to existing databases if they are missing
+# Security Lock (JWT)
+def admin_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = None
+        auth_header = request.headers.get('Authorization')
+        if auth_header and auth_header.startswith('Bearer '):
+            token = auth_header.split(" ")[1]
+            
+        if not token:
+            return jsonify({'message': 'Token missing! Examiner route bypass fail.'}), 401
+            
         try:
-            cursor.execute("ALTER TABLE complaints ADD COLUMN before_image TEXT")
-        except sqlite3.OperationalError:
-            pass # Column already exists
+            data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
+            if data.get('role') != 'admin':
+                return jsonify({'message': 'Admin privileges required!'}), 403
+        except jwt.ExpiredSignatureError:
+            return jsonify({'message': 'Token expired, please login again.'}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({'message': 'Invalid token!'}), 401
+            
+        return f(*args, **kwargs)
+    return decorated
 
-        try:
-            cursor.execute("ALTER TABLE complaints ADD COLUMN after_image TEXT")
-        except sqlite3.OperationalError:
-            pass # Column already exists
-
-        conn.commit()
-    finally:
-        conn.close()
-
-init_db()
-
-# Configure the upload folder
 UPLOAD_FOLDER = os.path.join(os.getcwd(), 'static', 'uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
@@ -87,72 +62,59 @@ def serve_uploaded_image(filename):
 def upload_image():
     if 'image' not in request.files:
         return jsonify({"message": "No image file provided"}), 400
-    
     file = request.files['image']
-    
     if file.filename == '':
         return jsonify({"message": "Empty file provided"}), 400
-        
     if file:
         filename = secure_filename(file.filename)
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(filepath)
-        
         image_url = f"http://127.0.0.1:8000/static/uploads/{filename}"
         return jsonify({"message": "Upload successful", "imageUrl": image_url}), 200
     
-# 🔥 MERGED ADMIN ROUTE (No more duplicates!)
 @app.route('/api/complaints/update', methods=['POST'])
+@admin_required
 def update_complaint_status():
     data = request.json
-    
-    # Safely strip out 'GMDA-' if it was sent by the frontend
     raw_id = str(data.get('id')).replace('GMDA-', '')
-    
     new_status = data.get('status')
     admin_notes = data.get('adminNotes')
     after_image_url = data.get('afterImageUrl') 
 
     try:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE complaints 
+            SET status = %s, remarks = %s
+            WHERE id = %s
+        ''', (new_status, admin_notes, raw_id))
+        
+        if after_image_url:
             cursor.execute('''
                 UPDATE complaints 
-                SET status = ?, remarks = ?
-                WHERE id = ?
-            ''', (new_status, admin_notes, raw_id))
+                SET after_image = %s
+                WHERE id = %s
+            ''', (after_image_url, raw_id))
             
-            if after_image_url:
-                cursor.execute('''
-                    UPDATE complaints 
-                    SET after_image = ?
-                    WHERE id = ?
-                ''', (after_image_url, raw_id))
-                
-            conn.commit()
+        conn.commit()
+        conn.close()
         return jsonify({"message": "Status updated successfully"}), 200
     except Exception as e:
         return jsonify({"message": str(e)}), 500
 
-# LIVE SMTP EMAIL ENGINE
 @app.route('/api/send-otp', methods=['POST'])
 def send_otp():
     data = request.json
     email = data.get('email')
-    
-    if not email:
-        return jsonify({'status': 'error', 'message': 'Email is required.'}), 400
+    if not email: return jsonify({'status': 'error', 'message': 'Email is required.'}), 400
         
     otp = str(random.randint(100000, 999999))
     OTP_STORE[email] = otp
-    
     SENDER_EMAIL = os.environ.get('GMDA_SMTP_EMAIL', 'parks.gmda@gmail.com')
     SENDER_PASSWORD = os.environ.get('GMDA_SMTP_PASSWORD', 'uzeywjzznratnlzf')
 
-    if not SENDER_PASSWORD:
-        return jsonify({'status': 'error', 'message': 'Email service is not configured on the server.'}), 503
-    
+    if not SENDER_PASSWORD: return jsonify({'status': 'error', 'message': 'Email service is not configured on the server.'}), 503
     try:
         msg = MIMEText(f"Hello,\n\nYour secure GMDA Portal verification code is: {otp}\n\nDo not share this code with anyone. It will expire shortly.\n\n- System Admin")
         msg['Subject'] = 'GMDA Portal - Security OTP'
@@ -162,13 +124,12 @@ def send_otp():
         with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
             server.login(SENDER_EMAIL, SENDER_PASSWORD)
             server.send_message(msg)
-            
-        print(f"✅ SUCCESS: Live OTP dispatched to {email}")
         return jsonify({'status': 'success', 'message': 'OTP sent successfully!'})
-        
     except Exception as e:
-        print(f"❌ CRITICAL FAILURE sending email to {email}: {e}")
-        return jsonify({'status': 'error', 'message': 'Failed to send OTP via email. Check backend terminal.'}), 500
+        return jsonify({'status': 'error', 'message': 'Failed to send OTP via email.'}), 500
+
+def generate_token(user_id, role):
+    return jwt.encode({'user_id': user_id, 'role': role, 'exp': datetime.utcnow() + timedelta(hours=24)}, app.config['SECRET_KEY'], algorithm="HS256")
 
 @app.route('/api/verify-login-otp', methods=['POST'])
 def verify_login_otp():
@@ -176,16 +137,20 @@ def verify_login_otp():
     email = data.get('email')
     otp = data.get('otp')
     
-    if OTP_STORE.get(email) != otp:
-        return jsonify({'status': 'error', 'message': 'Invalid or expired OTP.'}), 401
+    if OTP_STORE.get(email) != otp: return jsonify({'status': 'error', 'message': 'Invalid or expired OTP.'}), 401
         
-    with get_db_connection() as conn:
-        user = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
+    user = cursor.fetchone()
+    conn.close()
         
     if user:
         del OTP_STORE[email] 
+        token = generate_token(user['id'], user['role'])
         return jsonify({
             'status': 'success', 
+            'token': token,
             'user': {'id': user['id'], 'fullName': user['full_name'], 'mobile': user['mobile_number'], 'email': user['email'], 'role': user['role']}
         }), 200
     else:
@@ -198,22 +163,23 @@ def verify_register_otp():
     email = data.get('email')
     otp = data.get('otp')
     
-    if OTP_STORE.get(email) != otp:
-        return jsonify({'status': 'error', 'message': 'Invalid or expired OTP.'}), 401
+    if OTP_STORE.get(email) != otp: return jsonify({'status': 'error', 'message': 'Invalid or expired OTP.'}), 401
         
     try:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("INSERT INTO users (full_name, email) VALUES (?, ?)", (full_name, email))
-            conn.commit()
-            new_user_id = cursor.lastrowid
-            
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO users (full_name, email) VALUES (%s, %s) RETURNING id", (full_name, email))
+        new_user_id = cursor.fetchone()['id']
+        conn.commit()
+        conn.close()
         del OTP_STORE[email]
+        token = generate_token(new_user_id, 'citizen')
         return jsonify({
             'status': 'success', 
+            'token': token,
             'user': {'id': new_user_id, 'fullName': full_name, 'mobile': None, 'email': email, 'role': 'citizen'}
         }), 201
-    except sqlite3.IntegrityError:
+    except psycopg2.IntegrityError:
         return jsonify({'status': 'error', 'message': 'Email is already registered!'}), 409
 
 @app.route('/api/register', methods=['POST'])
@@ -223,22 +189,23 @@ def api_register():
     mobile_number = data.get('mobile')
     password = data.get('password')
 
-    if not full_name or not mobile_number or not password:
-        return jsonify({'status': 'error', 'message': 'All fields are required.'}), 400
-
-    hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+    if not full_name or not mobile_number or not password: return jsonify({'status': 'error', 'message': 'All fields are required.'}), 400
+    hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
     try:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("INSERT INTO users (full_name, mobile_number, password) VALUES (?, ?, ?)",
-                           (full_name, mobile_number, hashed_password))
-            conn.commit()
-            return jsonify({
-                'status': 'success', 
-                'user': {'id': cursor.lastrowid, 'fullName': full_name, 'mobile': mobile_number, 'email': None, 'role': 'citizen'}
-            }), 201
-    except sqlite3.IntegrityError:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO users (full_name, mobile_number, password) VALUES (%s, %s, %s) RETURNING id",
+                       (full_name, mobile_number, hashed_password))
+        new_user_id = cursor.fetchone()['id']
+        conn.commit()
+        conn.close()
+        token = generate_token(new_user_id, 'citizen')
+        return jsonify({
+            'status': 'success', 'token': token,
+            'user': {'id': new_user_id, 'fullName': full_name, 'mobile': mobile_number, 'email': None, 'role': 'citizen'}
+        }), 201
+    except psycopg2.IntegrityError:
         return jsonify({'status': 'error', 'message': 'Mobile number is already registered!'}), 409
 
 @app.route('/api/login', methods=['POST'])
@@ -247,19 +214,23 @@ def api_login():
     mobile_number = data.get('mobile')
     password = data.get('password')
 
-    with get_db_connection() as conn:
-        user = conn.execute("SELECT * FROM users WHERE mobile_number = ?", (mobile_number,)).fetchone()
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users WHERE mobile_number = %s", (mobile_number,))
+    user = cursor.fetchone()
+    conn.close()
         
-        if user and user['password']:
-            stored_password = user['password']
-            if isinstance(stored_password, str):
-                stored_password = stored_password.encode('utf-8')
-                
-            if bcrypt.checkpw(password.encode('utf-8'), stored_password):
-                return jsonify({
-                    'status': 'success', 
-                    'user': {'id': user['id'], 'fullName': user['full_name'], 'mobile': user['mobile_number'], 'email': user['email'], 'role': user['role']}
-                }), 200
+    if user and user['password']:
+        stored_password = user['password']
+        if isinstance(stored_password, str):
+            stored_password = stored_password.encode('utf-8')
+            
+        if bcrypt.checkpw(password.encode('utf-8'), stored_password):
+            token = generate_token(user['id'], user['role'])
+            return jsonify({
+                'status': 'success', 'token': token,
+                'user': {'id': user['id'], 'fullName': user['full_name'], 'mobile': user['mobile_number'], 'email': user['email'], 'role': user['role']}
+            }), 200
             
     return jsonify({'status': 'error', 'message': 'Invalid mobile number or password.'}), 401
 
@@ -270,24 +241,25 @@ def api_change_password():
     old_password = data.get('oldPassword')
     new_password = data.get('newPassword')
 
-    with get_db_connection() as conn:
-        user = conn.execute("SELECT * FROM users WHERE mobile_number = ?", (mobile_number,)).fetchone()
-        if user and user['password']:
-            stored_password = user['password']
-            if isinstance(stored_password, str):
-                stored_password = stored_password.encode('utf-8')
-
-            if bcrypt.checkpw(old_password.encode('utf-8'), stored_password):
-                new_hashed = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt())
-                conn.execute("UPDATE users SET password = ? WHERE mobile_number = ?", (new_hashed, mobile_number))
-                conn.commit()
-                return jsonify({'status': 'success', 'message': 'Security credentials updated successfully.'}), 200
-                
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users WHERE mobile_number = %s", (mobile_number,))
+    user = cursor.fetchone()
+    if user and user['password']:
+        stored_password = user['password'].encode('utf-8') if isinstance(user['password'], str) else user['password']
+        if bcrypt.checkpw(old_password.encode('utf-8'), stored_password):
+            new_hashed = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+            cursor.execute("UPDATE users SET password = %s WHERE mobile_number = %s", (new_hashed, mobile_number))
+            conn.commit()
+            conn.close()
+            return jsonify({'status': 'success', 'message': 'Security credentials updated successfully.'}), 200
+    conn.close()
     return jsonify({'status': 'error', 'message': 'Verification failed.'}), 401
 
 @app.route('/api/complaints', methods=['GET', 'POST'])
 def api_complaints():
     conn = get_db_connection()
+    cursor = conn.cursor()
     try:
         if request.method == 'POST':
             data = request.json
@@ -297,21 +269,19 @@ def api_complaints():
             category = data.get('category')
             sub_category = data.get('subCategory', '')
             remarks = data.get('remarks', '')
-            before_image = data.get('beforeImageUrl') # 🔥 CAUGHT THE IMAGE!
+            before_image = data.get('beforeImageUrl')
 
             priority = 'Medium'
             if category in ['Streetlights Not Working', 'Play Area Issues', 'Waterlogging', 'Stray Animal Danger']:
                 priority = 'High'
             elif category in ['Damaged Benches', 'Broken Gym Equipment', 'Garbage Accumulation', 'Walking Track Issues', 'Public Amenities']:
                 priority = 'Medium'
-            else:
-                priority = 'Low'
+            else: priority = 'Low'
 
-            cursor = conn.cursor()
             cursor.execute("""
                 INSERT INTO complaints 
                 (citizen_name, park_name, sector_id, category, sub_category, remarks, priority, before_image) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """, (citizen_name, park_name, sector_id, category, sub_category, remarks, priority, before_image))
             conn.commit()
             return jsonify({'status': 'success'}), 201
@@ -320,19 +290,22 @@ def api_complaints():
             citizen_name = request.args.get('citizenName')
 
             if citizen_name:
-                db_complaints = conn.execute("SELECT * FROM complaints WHERE citizen_name = ? ORDER BY timestamp ASC", (citizen_name,)).fetchall()
-                resolved_count = conn.execute("SELECT COUNT(*) FROM complaints WHERE status = 'Resolved' AND citizen_name = ?", (citizen_name,)).fetchone()[0]
-                active_count = conn.execute("SELECT COUNT(*) FROM complaints WHERE status != 'Resolved' AND citizen_name = ?", (citizen_name,)).fetchone()[0]
+                cursor.execute("SELECT * FROM complaints WHERE citizen_name = %s ORDER BY timestamp ASC", (citizen_name,))
+                db_complaints = cursor.fetchall()
+                cursor.execute("SELECT COUNT(*) as count FROM complaints WHERE status = 'Resolved' AND citizen_name = %s", (citizen_name,))
+                resolved_count = cursor.fetchone()['count']
+                cursor.execute("SELECT COUNT(*) as count FROM complaints WHERE status != 'Resolved' AND citizen_name = %s", (citizen_name,))
+                active_count = cursor.fetchone()['count']
             else:
-                db_complaints = conn.execute("SELECT * FROM complaints ORDER BY timestamp ASC").fetchall()
-                resolved_count = conn.execute("SELECT COUNT(*) FROM complaints WHERE status = 'Resolved'").fetchone()[0]
-                active_count = conn.execute("SELECT COUNT(*) FROM complaints WHERE status != 'Resolved'").fetchone()[0]
+                cursor.execute("SELECT * FROM complaints ORDER BY timestamp ASC")
+                db_complaints = cursor.fetchall()
+                cursor.execute("SELECT COUNT(*) as count FROM complaints WHERE status = 'Resolved'")
+                resolved_count = cursor.fetchone()['count']
+                cursor.execute("SELECT COUNT(*) as count FROM complaints WHERE status != 'Resolved'")
+                active_count = cursor.fetchone()['count']
             
             complaints_list = []
             for row in db_complaints:
-                # Safely grab the images if they exist in this row
-                row_keys = row.keys()
-                
                 complaints_list.append({
                     'id': f"{row['id']:03d}",
                     'parkName': row['park_name'],
@@ -341,8 +314,8 @@ def api_complaints():
                     'priority': row['priority'],
                     'status': row['status'],
                     'remarks': row['remarks'],
-                    'beforeImage': row['before_image'] if 'before_image' in row_keys else None,
-                    'afterImage': row['after_image'] if 'after_image' in row_keys else None
+                    'beforeImageUrl': row.get('before_image'),
+                    'afterImageUrl': row.get('after_image')
                 })
 
             return jsonify({

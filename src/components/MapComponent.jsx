@@ -25,6 +25,15 @@ function MapComponent({ isActive, parkData, searchParkName, searchSectorId, onPa
   const measurePolygonRef = useRef(null); 
   const searchResultsGroupRef = useRef(null); 
   const customPinGroupRef = useRef(null); 
+  const customPinRef = useRef(null);
+
+  useEffect(() => {
+    isMeasuringRef.current = isMeasuring;
+    isPinModeRef.current = isPinMode;
+    if (mapInstanceRef.current && mapInstanceRef.current._container) {
+      mapInstanceRef.current._container.style.cursor = (isMeasuring || isPinMode) ? 'crosshair' : '';
+    }
+  }, [isMeasuring, isPinMode]);
 
   useEffect(() => {
     isMeasuringRef.current = isMeasuring;
@@ -37,6 +46,7 @@ function MapComponent({ isActive, parkData, searchParkName, searchSectorId, onPa
   useEffect(() => {
     if (!isPinMode && customPinGroupRef.current) {
       customPinGroupRef.current.clearLayers();
+      customPinRef.current = null;
     }
   }, [isPinMode]);
 
@@ -44,17 +54,13 @@ function MapComponent({ isActive, parkData, searchParkName, searchSectorId, onPa
     setMeasurePoints([]);
     setMeasureDistance(0);
     setMeasureArea(0);
-    if (measureGroupRef.current && measureLineRef.current && measurePolygonRef.current) {
+    if (measureGroupRef.current) {
       measureGroupRef.current.clearLayers();
-      measurePolygonRef.current = window.L.polygon([], { 
-        color: '#1d4ed8', weight: 2, fillColor: '#3b82f6', fillOpacity: 0.2 
-      }).addTo(measureGroupRef.current);
-      measureLineRef.current = window.L.polyline([], { 
-        color: '#1d4ed8', weight: 4, dashArray: '6, 8' 
-      }).addTo(measureGroupRef.current);
+      measurePolygonRef.current = window.L.polygon([], { color: '#1d4ed8', weight: 2, fillColor: '#3b82f6', fillOpacity: 0.2 }).addTo(measureGroupRef.current);
+      measureLineRef.current = window.L.polyline([], { color: '#1d4ed8', weight: 4, dashArray: '6, 8' }).addTo(measureGroupRef.current);
     }
   };
-
+  
   useEffect(() => {
     if (isActive && window.L && mapRef.current) {
       if (mapInstanceRef.current) return;
@@ -80,27 +86,34 @@ function MapComponent({ isActive, parkData, searchParkName, searchSectorId, onPa
         searchResultsGroupRef.current = window.L.layerGroup().addTo(mapInstance);
         customPinGroupRef.current = window.L.layerGroup().addTo(mapInstance); 
 
+        //  SINGLE CLICK HANDLER (Handles both Pin Drop and Measuring)
         const handleMapClick = (e) => {
+          const { lat, lng } = e.latlng;
+
+          // 1. PIN DROP MODE
           if (isPinModeRef.current) {
-            const { lat, lng } = e.latlng;
-            
-            // THE GEOFENCE (GMDA Jurisdiction Rough Bounds)
-            // Format: [min_longitude, min_latitude, max_longitude, max_latitude]
-            const gurugramBBox = [76.8500, 28.3100, 77.1500, 28.5500];
+            // The Geofence check
+            const gurugramBBox = [76.8500, 28.3200, 77.1150, 28.5080];
             const boundaryPolygon = turf.bboxPolygon(gurugramBBox);
             const clickedPoint = turf.point([lng, lat]);
 
-            // Math check: Did they click outside the box?
             if (!turf.booleanPointInPolygon(clickedPoint, boundaryPolygon)) {
-              window.alert("❌ Invalid Location: This point is outside the Gurugram City limits. Please drop the pin within the city.");
-              return; // Completely stops the pin from being drawn!
+              window.alert("Location Out of Bounds: You can only drop pins and register complaints for parks inside the Gurugram city limits!");
+              return; // Stop the pin from dropping
             }
-            
-            customPinGroupRef.current.clearLayers();
 
-            const marker = window.L.circleMarker([lat, lng], {
-              radius: 8, color: '#1e40af', fillColor: '#3b82f6', fillOpacity: 0.9, weight: 3
-            }).addTo(customPinGroupRef.current);
+            if (customPinRef.current) {
+              mapInstance.removeLayer(customPinRef.current);
+            }
+
+            customPinRef.current = window.L.marker([lat, lng], {
+              icon: window.L.divIcon({
+                className: 'custom-pin-icon',
+                html: `<div style="background-color: #2563eb; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 4px rgba(0,0,0,0.5);"></div>`,
+                iconSize: [14, 14],
+                iconAnchor: [7, 7]
+              })
+            }).addTo(mapInstance);
 
             const popupContent = `
               <div style="text-align: center;">
@@ -112,57 +125,57 @@ function MapComponent({ isActive, parkData, searchParkName, searchSectorId, onPa
               </div>
             `;
 
-            marker.bindPopup(popupContent);
+            customPinRef.current.bindPopup(popupContent).openPopup();
 
-            marker.on('popupopen', (ev) => {
+            customPinRef.current.on('popupopen', (popupEvent) => {
               setTimeout(() => {
-                const btn = ev.popup._contentNode?.querySelector('.select-custom-pin-btn');
+                const btn = popupEvent.popup._contentNode?.querySelector('.select-custom-pin-btn');
                 if (btn) {
                   btn.onclick = () => {
                     if (callbacksRef.current.onCustomPinSelect) {
                       callbacksRef.current.onCustomPinSelect(lat, lng);
                     }
-                    mapInstanceRef.current.closePopup();
-                    setIsPinMode(false); 
+                    mapInstance.closePopup();
                   };
                 }
               }, 50);
             });
             
-            marker.openPopup();
-            return; 
+            return; // Exit function so it doesn't trigger measure mode
           }
 
-          if (!isMeasuringRef.current) return;
+          // 2. MEASUREMENT MODE
+          if (isMeasuringRef.current) {
+            setMeasurePoints(prev => {
+              const newPoint = [lat, lng];
+              const updated = [...prev, newPoint];
 
-          setMeasurePoints(prev => {
-            const newPoint = [e.latlng.lat, e.latlng.lng];
-            const updated = [...prev, newPoint];
+              window.L.circleMarker([lat, lng], {
+                radius: 5, color: '#1d4ed8', fillColor: '#ffffff', fillOpacity: 1, weight: 2
+              }).addTo(measureGroupRef.current);
 
-            window.L.circleMarker(e.latlng, {
-              radius: 5, color: '#1d4ed8', fillColor: '#ffffff', fillOpacity: 1, weight: 2
-            }).addTo(measureGroupRef.current);
+              measureLineRef.current.setLatLngs(updated);
+              if (updated.length >= 3) measurePolygonRef.current.setLatLngs(updated);
+              else measurePolygonRef.current.setLatLngs([]);
 
-            measureLineRef.current.setLatLngs(updated);
-            if (updated.length >= 3) measurePolygonRef.current.setLatLngs(updated);
-            else measurePolygonRef.current.setLatLngs([]);
+              if (updated.length > 1) {
+                const turfCoords = updated.map(coord => [coord[1], coord[0]]);
+                const line = turf.lineString(turfCoords);
+                setMeasureDistance(turf.length(line, { units: 'meters' }));
 
-            if (updated.length > 1) {
-              const turfCoords = updated.map(coord => [coord[1], coord[0]]);
-              const line = turf.lineString(turfCoords);
-              setMeasureDistance(turf.length(line, { units: 'meters' }));
-
-              if (updated.length >= 3) {
-                const closedCoords = [...turfCoords, turfCoords[0]]; 
-                setMeasureArea(turf.area(turf.polygon([closedCoords])));
-              } else {
-                setMeasureArea(0);
+                if (updated.length >= 3) {
+                  const closedCoords = [...turfCoords, turfCoords[0]]; 
+                  setMeasureArea(turf.area(turf.polygon([closedCoords])));
+                } else {
+                  setMeasureArea(0);
+                }
               }
-            }
-            return updated;
-          });
+              return updated;
+            });
+          }
         };
 
+        // Attach the single, merged click handler
         mapInstance.on('click', handleMapClick);
 
       } catch (fatalError) {
@@ -179,7 +192,6 @@ function MapComponent({ isActive, parkData, searchParkName, searchSectorId, onPa
     }
   }, [isActive]);
 
-  // SPATIAL SEARCH ENGINE
   // SPATIAL SEARCH ENGINE
   useEffect(() => {
     if (!mapInstanceRef.current || !parkData) return;
@@ -203,24 +215,27 @@ function MapComponent({ isActive, parkData, searchParkName, searchSectorId, onPa
 
     const sectorTokens = normalizedSector.split(' ').filter(t => t.length > 0);
 
+    // THE TIGHT GEOFENCE SETUP FOR SEARCH
+    // [minLng, minLat, maxLng, maxLat]
+    // Max Latitude 28.508 set kiya hai (Ambience Mall border) -> Cuts off Vasant Kunj (28.53+)
+    // Max Longitude 77.115 set kiya hai -> Cuts off Aya Nagar / Chhatarpur (77.12+)
+    const gurugramBBox = [76.8500, 28.3200, 77.1150, 28.5080];
+    const boundaryPolygon = turf.bboxPolygon(gurugramBBox);
+
     const matchedParks = parkData.features.filter(park => {
       const props = park.properties || {};
       const nameNorm = (props.name || '').toLowerCase();
       
-      // 2. Normalize the database string the exact same way
       const allPropsStr = Object.values(props).join(" ").toLowerCase();
       const cleanPropsStr = allPropsStr.replace(/[^a-z0-9]/g, ' ');
       const parkDataTokens = cleanPropsStr.split(' ').filter(t => t.length > 0);
 
-      // 🔥 THE FIX: Strict token matching
+      // Strict Token Matching
       const matchesArea = sectorTokens.length > 0 
         ? sectorTokens.every(token => {
-            // If the user typed a number (e.g., "11"), it MUST be an exact whole-word match
-            // This strictly prevents "11" from triggering "110", "111", etc.
             if (/^\d+$/.test(token)) {
               return parkDataTokens.includes(token);
             }
-            // If it's a word like "sector" or "phase", partial match is fine
             return allPropsStr.includes(token);
           })
         : true;
@@ -229,7 +244,17 @@ function MapComponent({ isActive, parkData, searchParkName, searchSectorId, onPa
         ? nameNorm.includes(searchTerm) 
         : true;
 
-      return matchesArea && matchesName;
+      // Agar text match hi nahi hua toh pehle hi reject kardo
+      if (!(matchesArea && matchesName)) return false;
+      
+      // EXTRA FILTER: Agar galti se property me Delhi likha hai toh wahin uda do
+      if (allPropsStr.includes('delhi') || allPropsStr.includes('vasant kunj') || allPropsStr.includes('new delhi')) {
+        return false;
+      }
+
+      //  THE GEOFENCE CHECK
+      const centerPoint = turf.center(park);
+      return turf.booleanPointInPolygon(centerPoint, boundaryPolygon); 
     });
 
     if (matchedParks.length > 0) {
