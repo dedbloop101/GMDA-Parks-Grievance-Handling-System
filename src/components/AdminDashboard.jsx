@@ -85,7 +85,7 @@ function AdminDashboard() {
         else window.alert("Image upload failed, updating status without image.");
       }
 
-      // 🛡️ JWT SECURE API CALL
+      // JWT SECURE API CALL
       const response = await fetch(`${API_BASE}/api/complaints/update`, {
         method: 'POST',
         headers: { 
@@ -113,7 +113,7 @@ function AdminDashboard() {
     }
   };
 
-  // 🔥 SEARCH LOGIC
+  // SEARCH LOGIC
   const filteredItems = adminData.complaints.filter(
     item => 
       (item.parkName && item.parkName.toLowerCase().includes(filterText.toLowerCase())) ||
@@ -121,7 +121,7 @@ function AdminDashboard() {
       (item.id && item.id.toString().includes(filterText))
   );
 
-  // 📊 DATA PROCESSING FOR CHARTS
+  // DATA PROCESSING FOR CHARTS
   const statusCounts = adminData.complaints.reduce((acc, curr) => {
     acc[curr.status] = (acc[curr.status] || 0) + 1;
     return acc;
@@ -143,6 +143,9 @@ function AdminDashboard() {
     name: key,
     Complaints: categoryCounts[key]
   })).sort((a, b) => b.Complaints - a.Complaints).slice(0, 5); // Top 5 Categories
+
+  // CUSTOM COLORS FOR BAR CHART
+  const BAR_COLORS = ['#2563eb', '#8b5cf6', '#ec4899', '#f59e0b', '#14b8a6'];
 
   const columns = [
     {
@@ -236,22 +239,25 @@ function AdminDashboard() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '25px', position: 'relative' }}>
       
-      <div className="kpi-grid">
-        <div className="kpi-card" style={{ borderTop: '4px solid #b91c1c' }}>
-          <p>Total Active Complaints</p>
-          <h3 style={{ color: '#b91c1c' }}>{adminData.kpis.pendingGrievances}</h3>
+      {/* STRETCHED 3-BOX KPI GRID */}
+      <div className="kpi-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px', width: '100%' }}>
+        <div className="kpi-card" style={{ borderTop: '4px solid #b91c1c', padding: '20px', backgroundColor: 'var(--bg-card)', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
+          <p style={{ margin: '0 0 10px 0', fontSize: '13px', fontWeight: 'bold', color: 'var(--text-muted)' }}>TOTAL ACTIVE COMPLAINTS</p>
+          <h3 style={{ margin: 0, fontSize: '28px', color: '#b91c1c' }}>{adminData.kpis.pendingGrievances}</h3>
         </div>
-        <div className="kpi-card" style={{ borderTop: '4px solid #15803d' }}>
-          <p>Total Resolved</p>
-          <h3 style={{ color: '#15803d' }}>{adminData.kpis.resolvedIssues}</h3>
+        
+        <div className="kpi-card" style={{ borderTop: '4px solid #15803d', padding: '20px', backgroundColor: 'var(--bg-card)', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
+          <p style={{ margin: '0 0 10px 0', fontSize: '13px', fontWeight: 'bold', color: 'var(--text-muted)' }}>TOTAL RESOLVED</p>
+          <h3 style={{ margin: 0, fontSize: '28px', color: '#15803d' }}>{adminData.kpis.resolvedIssues}</h3>
         </div>
-        <div className="kpi-card">
-          <p>Active Field Staff</p>
-          <h3>{adminData.kpis.activeFieldStaff}</h3>
+        
+        <div className="kpi-card" style={{ borderTop: '4px solid #2563eb', padding: '20px', backgroundColor: 'var(--bg-card)', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
+          <p style={{ margin: '0 0 10px 0', fontSize: '13px', fontWeight: 'bold', color: 'var(--text-muted)' }}>ACTIVE FIELD STAFF</p>
+          <h3 style={{ margin: 0, fontSize: '28px', color: '#2563eb' }}>{adminData.kpis.activeFieldStaff}</h3>
         </div>
       </div>
 
-      {/* 🚀 NEW: ANALYTICS CHARTS SECTION */}
+      {/* NEW: ANALYTICS CHARTS SECTION */}
       {adminData.complaints.length > 0 && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '25px' }}>
           
@@ -264,26 +270,58 @@ function AdminDashboard() {
                   {statusData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
                 </Pie>
                 <RechartsTooltip contentStyle={{ borderRadius: '4px', border: '1px solid var(--border-slate)', backgroundColor: 'var(--bg-card)' }} itemStyle={{ color: 'var(--text-main)', fontWeight: 'bold' }} />
-                <Legend verticalAlign="bottom" height={36} />
+                <Legend verticalAlign="bottom" height={36} iconType="circle" />
               </PieChart>
             </ResponsiveContainer>
           </div>
 
-          {/* Chart 2: Top Categories Bar Chart */}
-          <div className="table-container" style={{ display: 'flex', flexDirection: 'column', height: '350px', padding: '20px' }}>
-            <h3 style={{ fontSize: '15px', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '10px', color: 'var(--text-main)' }}>Top Problem Areas (Categories)</h3>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={categoryData} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border-slate)" vertical={false} />
-                <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'var(--text-muted)' }} tickLine={false} axisLine={false} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: 'var(--text-muted)' }} tickLine={false} axisLine={false} />
-                <RechartsTooltip 
-                  cursor={{ fill: 'var(--bg-body)' }} 
-                  contentStyle={{ borderRadius: '4px', border: '1px solid var(--border-slate)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)' }} 
-                />
-                <Bar dataKey="Complaints" fill="var(--color-admin)" radius={[4, 4, 0, 0]} maxBarSize={50} />
-              </BarChart>
-            </ResponsiveContainer>
+          {/* FIXED & OPTIMIZED BAR CHART WITH RELIABLE CUSTOM LEGEND */}
+          <div className="table-container" style={{ display: 'flex', flexDirection: 'column', height: 'auto', minHeight: '400px', padding: '20px', backgroundColor: 'var(--bg-card)', borderRadius: '8px' }}>
+            <h3 style={{ fontSize: '15px', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '20px', color: 'var(--text-main)' }}>Top Problem Areas (Categories)</h3>
+            
+            {/* HIGHLY LEGIBLE CUSTOM HTML LEGEND (No Recharts Bug) */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '15px', justifyContent: 'flex-start', marginBottom: '20px', padding: '0 10px' }}>
+              {categoryData.map((entry, index) => {
+                const CORPORATE_COLORS = ['#1e293b', '#16a34a', '#d97706', '#dc2626', '#4b5563'];
+                return (
+                  <div key={`custom-legend-${index}`} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: '500', color: 'var(--text-main)' }}>
+                    <span style={{ width: '12px', height: '12px', backgroundColor: CORPORATE_COLORS[index % 5], borderRadius: '3px', display: 'inline-block' }}></span>
+                    <span>{entry.name}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{ width: '100%', height: 280 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={categoryData} margin={{ top: 10, right: 20, left: -20, bottom: 20 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border-slate)" vertical={false} />
+                  
+                  {/* ADDED X-AXIS PADDING SO TEXT DOES NOT CLIP */}
+                  <XAxis 
+                    dataKey="name" 
+                    tick={{ fontSize: 10, fill: 'var(--text-muted)' }} 
+                    tickLine={false} 
+                    axisLine={false}
+                    interval={0}
+                    padding={{ left: 30, right: 30 }}
+                  />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: 'var(--text-muted)' }} tickLine={false} axisLine={false} />
+                  
+                  <RechartsTooltip 
+                    cursor={false} 
+                    contentStyle={{ borderRadius: '4px', border: '1px solid var(--border-slate)', backgroundColor: '#ffffff', color: '#000000', fontSize: '13px' }} 
+                  />
+                  
+                  <Bar dataKey="Complaints" radius={[4, 4, 0, 0]} maxBarSize={45}>
+                    {categoryData.map((entry, index) => {
+                      const CORPORATE_COLORS = ['#1e293b', '#16a34a', '#d97706', '#dc2626', '#4b5563'];
+                      return <Cell key={`cell-${index}`} fill={CORPORATE_COLORS[index % 5]} />;
+                    })}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </div>
 
         </div>
